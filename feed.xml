@@ -1,4 +1,209 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://jekyllrb.com/" version="4.1.1">Jekyll</generator><link href="https://aguinet.github.io//feed.xml" rel="self" type="application/atom+xml" /><link href="https://aguinet.github.io//" rel="alternate" type="text/html" hreflang="en" /><updated>2020-09-02T21:04:45+02:00</updated><id>https://aguinet.github.io//feed.xml</id><subtitle></subtitle><entry><title type="html">Emulating NotPetya bootloader with Miasm</title><link href="https://aguinet.github.io//blog/2020/08/29/miasm-bootloader.html" rel="alternate" type="text/html" title="Emulating NotPetya bootloader with Miasm" /><published>2020-08-29T00:00:00+02:00</published><updated>2020-08-29T00:00:00+02:00</updated><id>https://aguinet.github.io//blog/2020/08/29/miasm-bootloader</id><content type="html" xml:base="https://aguinet.github.io//blog/2020/08/29/miasm-bootloader.html">&lt;p&gt;NotPetya is a famous malware of the Petya family. It appeared in June 2017.
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://jekyllrb.com/" version="4.1.1">Jekyll</generator><link href="https://aguinet.github.io//feed.xml" rel="self" type="application/atom+xml" /><link href="https://aguinet.github.io//" rel="alternate" type="text/html" hreflang="en" /><updated>2020-10-05T09:12:07+02:00</updated><id>https://aguinet.github.io//feed.xml</id><subtitle></subtitle><entry><title type="html">Lifting shared libraries &amp;amp; PIE binaries with DragonFFI (and LIEF)</title><link href="https://aguinet.github.io//blog/2020/10/05/dragonffi-library-lifting.html" rel="alternate" type="text/html" title="Lifting shared libraries &amp;amp; PIE binaries with DragonFFI (and LIEF)" /><published>2020-10-05T00:00:00+02:00</published><updated>2020-10-05T00:00:00+02:00</updated><id>https://aguinet.github.io//blog/2020/10/05/dragonffi-library-lifting</id><content type="html" xml:base="https://aguinet.github.io//blog/2020/10/05/dragonffi-library-lifting.html">&lt;p&gt;&lt;a href=&quot;https://github.com/aguinet/dragonffi/releases/tag/dffi-0.6.0&quot;&gt;Dragonffi 0.6.0&lt;/a&gt;
+comes with new APIs that can be leveraged to call arbitrary functions within a
+shared library (or position independent (aka PIE) binaries).&lt;/p&gt;
+
+&lt;p&gt;This small post showcases how to use these new APIs to do so. Impatient readers
+can directly &lt;a href=&quot;#call-the-function-method-1&quot;&gt;jump to the Python scripts&lt;/a&gt;
+achieving this feature.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;DragonFFI’s python bindings can be installed using &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;pip install
+pydffi&lt;/code&gt;.  Wheels have been precompiled for OSX/Windows/Linux for x64. The 0.6.0
+release is the first one where these packages have been fully built &lt;a href=&quot;https://github.com/aguinet/dragonffi/blob/dffi-0.6.0/.github/workflows/dist_publish.yml&quot;&gt;using
+Github
+Actions&lt;/a&gt;!&lt;/em&gt;&lt;/p&gt;
+
+&lt;h1 id=&quot;introduction&quot;&gt;Introduction&lt;/h1&gt;
+
+&lt;p&gt;Let’s say we have a closed-source shared library (or a PIE binary). Calling
+exported function from this library is supported by the (famous) combo &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dlopen&lt;/code&gt; +
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dlsym&lt;/code&gt; (or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LoadLibrary&lt;/code&gt; + &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GetProcAddress&lt;/code&gt; for Windows), and also easily
+achievable from Python with FFI libraries like &lt;a href=&quot;https://docs.python.org/3/library/ctypes.html&quot;&gt;ctypes&lt;/a&gt;, &lt;a href=&quot;https://cffi.readthedocs.io/&quot;&gt;cffi&lt;/a&gt; and, obviously,
+&lt;a href=&quot;https://github.com/aguinet/dragonffi&quot;&gt;DragonFFI&lt;/a&gt;. Problems arise when we want to call a &lt;strong&gt;non exported&lt;/strong&gt;
+function from that binary, with the special bonus to do it directly from
+Python.&lt;/p&gt;
+
+&lt;p&gt;The classical way to do this is:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;load this library into the Python process&lt;/li&gt;
+  &lt;li&gt;find its loading base address&lt;/li&gt;
+  &lt;li&gt;compute the function address (thanks to the base address)&lt;/li&gt;
+  &lt;li&gt;call it using an FFI library, e.g. &lt;a href=&quot;https://docs.python.org/3/library/ctypes.html&quot;&gt;ctypes&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Let’s see how &lt;a href=&quot;https://github.com/aguinet/dragonffi&quot;&gt;DragonFFI&lt;/a&gt; makes all of this an easy task through a
+shared library example. &lt;a href=&quot;#what-about-pie-binaries-linux-only&quot;&gt;This section&lt;/a&gt;
+gives links for the extra necessary steps to dynamically load a PIE binary
+under Linux (using &lt;a href=&quot;https://lief.quarkslab.com&quot;&gt;LIEF&lt;/a&gt;).&lt;/p&gt;
+
+&lt;h1 id=&quot;toy-library-example&quot;&gt;Toy library example&lt;/h1&gt;
+
+&lt;p&gt;Let’s say we have a very elite library that decrypts and prints buffers:&lt;/p&gt;
+
+&lt;div class=&quot;language-c highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;cp&quot;&gt;#include &amp;lt;stdint.h&amp;gt;
+#include &amp;lt;stdio.h&amp;gt;
+#include &amp;lt;stdlib.h&amp;gt;
+#include &amp;lt;string.h&amp;gt;
+&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;__attribute__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;((&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;noinline&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;static&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;decrypt&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;size_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;size_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;++&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;^=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;n&quot;&gt;__attribute__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;((&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;visibility&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;default&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)))&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;decrypt_print&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;size_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;decr&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;malloc&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;+&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;!&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;decr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;memcpy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;decr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;decrypt&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;decr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;puts&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;decr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Note the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;__attribute__((noinline))&lt;/code&gt; attribute for the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;decrypt&lt;/code&gt; function, so
+that we are sure this function ends up in the compiled binary.&lt;/p&gt;
+
+&lt;p&gt;Let’s consider we are provided with only a binary version of this library,
+compiled like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;gcc -O2 -fvisibility=hidden mylib.c -fPIC -shared -o mylib.so -Wl,-strip-all
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;nm&lt;/code&gt; tells us that the only exported symbol is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;decrypt_print&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$ nm -D --defined-only mylib.so
+0000000000001150 T decrypt_print
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Reverse engineering this library should give us the relative address of the
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;decrypt&lt;/code&gt; function. With the system used to write this post, this relative
+address is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x1130&lt;/code&gt; in the resulting &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;mylib.so&lt;/code&gt; file.&lt;/p&gt;
+
+&lt;h1 id=&quot;load-the-library-and-get-its-base-address&quot;&gt;Load the library and get its base address&lt;/h1&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://github.com/aguinet/dragonffi&quot;&gt;DragonFFI&lt;/a&gt; provides the cross-platform &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;pydffi.dlopen&lt;/code&gt; function to
+load a shared library into the Python process:&lt;/p&gt;
+
+&lt;div class=&quot;language-python highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;pydffi&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;lib&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pydffi&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dlopen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;/path/to/mylib.so&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Note that, on some system (e.g. Linux), a full path to the library must be
+provided to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dlopen&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;The object returned by &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dlopen&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;lib&lt;/code&gt; in our example) have a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;baseAddress&lt;/code&gt;
+property containing the base address where the library has been loaded:&lt;/p&gt;
+
+&lt;div class=&quot;language-python highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;print&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;hex&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;lib&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;baseAddress&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This is supported for OSX/Windows/Linux. Note that, under OSX, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;baseAddress&lt;/code&gt;
+can have a &lt;a href=&quot;https://github.com/aguinet/dragonffi/blob/dffi-0.6.0/lib/dffi_api_osx.inc&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;O(n)&lt;/code&gt;
+complexity&lt;/a&gt;,
+with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;n&lt;/code&gt; being the number of loaded libraries in the Python process.&lt;/p&gt;
+
+&lt;p&gt;Let’s see two methods to call the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;decrypt&lt;/code&gt; function from such a shared
+library.&lt;/p&gt;
+
+&lt;h1 id=&quot;call-the-function-method-1&quot;&gt;Call the function, method 1&lt;/h1&gt;
+
+&lt;p&gt;The more straightforward method to call arbitrary function from that binary is
+to dynamically add new symbols into &lt;a href=&quot;https://github.com/aguinet/dragonffi&quot;&gt;DragonFFI&lt;/a&gt;’s runtime dynamic linker (which
+is basically
+&lt;a href=&quot;https://github.com/aguinet/dragonffi/blob/dffi-0.6.0/lib/dffi_api.cpp#L105&quot;&gt;LLVM’s&lt;/a&gt;).&lt;/p&gt;
+
+&lt;p&gt;This can be achieved using the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;pydffi.addSymbol&lt;/code&gt; function, and then call the
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;decrypt&lt;/code&gt; function as we would &lt;em&gt;usually&lt;/em&gt; do:&lt;/p&gt;
+
+&lt;div class=&quot;language-python highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;pydffi&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# Load the library into our current Python process
+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;lib&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pydffi&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dlopen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;/path/to/mylib.so&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;BASE&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;lib&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;baseAddress&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# TODO: put the offset for your library
+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;DECRYPT_OFFSET&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mh&quot;&gt;0x1130&lt;/span&gt;
+ 
+&lt;span class=&quot;c1&quot;&gt;# Add the &quot;decrypt&quot; symbol to the dynamic linker
+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;pydffi&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;addSymbol&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;decrypt&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;BASE&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;DECRYPT_OFFSET&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# Declare the &quot;decrypt&quot; function interface, as we would do with any other
+# classical one
+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;FFI&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pydffi&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;FFI&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;CU&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;FFI&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;cdef&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;'''
+#include &amp;lt;stdint.h&amp;gt;
+#include &amp;lt;stdlib.h&amp;gt;
+void decrypt(uint8_t* buf, const size_t len, uint8_t const key);
+'''&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# Call the decrypt function
+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mh&quot;&gt;0xAA&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bytearray&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;c&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;^&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;c&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;b&quot;Hello World!&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;CU&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;funcs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;decrypt&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;print&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h1 id=&quot;call-the-function-method-2&quot;&gt;Call the function, method 2&lt;/h1&gt;
+
+&lt;p&gt;Another way to call a function at an arbitrary address is to declare function
+types, and instantiate them with an arbitrary address:&lt;/p&gt;
+
+&lt;div class=&quot;language-python highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;pydffi&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# Load the library into our current Python process
+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;lib&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pydffi&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dlopen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;/path/to/mylib.so&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;BASE&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;lib&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;baseAddress&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;DECRYPT_OFFSET&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mh&quot;&gt;0x1130&lt;/span&gt;
+ 
+&lt;span class=&quot;c1&quot;&gt;# Define the &quot;decrypt&quot; function type
+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;FFI&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pydffi&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;FFI&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;CU&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;FFI&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;cdef&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;'''
+#include &amp;lt;stdint.h&amp;gt;
+// Note that we declare a function type, not a pointer-to-function type
+typedef void(decrypt_functy)(uint8_t*, const size_t, uint8_t);
+'''&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# Create the decrypt function object
+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;decrypt&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;CU&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;types&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;decrypt_functy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BASE&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;DECRYPT_OFFSET&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# Call the decrypt function
+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mh&quot;&gt;0xAA&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bytearray&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;c&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;^&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;c&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;b&quot;Hello World!&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;decrypt&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;print&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h1 id=&quot;what-about-pie-binaries-linux-only&quot;&gt;What about PIE binaries? (Linux only)&lt;/h1&gt;
+
+&lt;p&gt;PIE binaries are relocatable (by design), and we can trick &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dlopen&lt;/code&gt; to open
+them.&lt;/p&gt;
+
+&lt;p&gt;Please note that doing this &lt;a href=&quot;https://sourceware.org/bugzilla/show_bug.cgi?id=11754&quot;&gt;isn’t fully supported by the Linux
+loader&lt;/a&gt;, and recent
+version of glibc actually prevent us from doing so. That being said, the &lt;a href=&quot;https://lief.quarkslab.com&quot;&gt;LIEF
+project&lt;/a&gt; documentation has &lt;a href=&quot;https://lief.quarkslab.com/doc/latest/tutorials/08_elf_bin2lib.html#warning-for-glic-2-29-users&quot;&gt;a great
+tutorial&lt;/a&gt;
+that shows how to patch the binary to circumvent this limitation.&lt;/p&gt;
+
+&lt;h1 id=&quot;alternative-method-using-lief&quot;&gt;Alternative method using LIEF&lt;/h1&gt;
+
+&lt;p&gt;Another way to fix our original problem is to use &lt;a href=&quot;https://lief.quarkslab.com&quot;&gt;LIEF&lt;/a&gt; to statically
+add exported symbols to our binary. This is covered in &lt;a href=&quot;https://lief.quarkslab.com/doc/latest/tutorials/08_elf_bin2lib.html&quot;&gt;this
+tutorial&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h1 id=&quot;conclusion&quot;&gt;Conclusion&lt;/h1&gt;
+
+&lt;p&gt;There’s nothing really fundamentally new in this post, or, in other words,
+nothing that you weren’t already able to do directly in C(++), or using
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ctypes&lt;/code&gt; in Python. &lt;a href=&quot;https://github.com/aguinet/dragonffi&quot;&gt;DragonFFI&lt;/a&gt; just makes this more straightforward
+and portable across OSX, Linux and Windows.&lt;/p&gt;
+
+&lt;h1 id=&quot;acknowledgment&quot;&gt;Acknowledgment&lt;/h1&gt;
+
+&lt;p&gt;Thanks to &lt;a href=&quot;https://github.com/serge-sans-paille/&quot;&gt;serge-sans-paille&lt;/a&gt; that took
+the time to review this post while cleaning &lt;a href=&quot;https://www.mangeons-local.bzh/wp-content/uploads/sac-kig-farz.jpg&quot;&gt;his lovely Kig Ah Farz
+bags&lt;/a&gt;, and
+toffan for various corrections.&lt;/p&gt;</content><author><name>adrien_guinet</name></author><category term="blog" /><summary type="html">Dragonffi 0.6.0 comes with new APIs that can be leveraged to call arbitrary functions within a shared library (or position independent (aka PIE) binaries).</summary></entry><entry><title type="html">Emulating NotPetya bootloader with Miasm</title><link href="https://aguinet.github.io//blog/2020/08/29/miasm-bootloader.html" rel="alternate" type="text/html" title="Emulating NotPetya bootloader with Miasm" /><published>2020-08-29T00:00:00+02:00</published><updated>2020-08-29T00:00:00+02:00</updated><id>https://aguinet.github.io//blog/2020/08/29/miasm-bootloader</id><content type="html" xml:base="https://aguinet.github.io//blog/2020/08/29/miasm-bootloader.html">&lt;p&gt;NotPetya is a famous malware of the Petya family. It appeared in June 2017.
 The part running from the Master Boot Record (MBR) has been statically and
 dynamically studied, using for instance the Bochs debugger from IDA. Is
 another approach possible? This article’s goal is to show that we can emulate
