@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="en"><!--
+ __  __                __                                     __
+/\ \/\ \              /\ \             __                    /\ \
+\ \ \_\ \   __  __    \_\ \      __   /\_\      __       ___ \ \ \/'\
+ \ \  _  \ /\ \/\ \   /'_` \   /'__`\ \/\ \   /'__`\    /'___\\ \ , <
+  \ \ \ \ \\ \ \_\ \ /\ \L\ \ /\  __/  \ \ \ /\ \L\.\_ /\ \__/ \ \ \\`\
+   \ \_\ \_\\/`____ \\ \___,_\\ \____\ _\ \ \\ \__/.\_\\ \____\ \ \_\ \_\
+    \/_/\/_/ `/___/> \\/__,_ / \/____//\ \_\ \\/__/\/_/ \/____/  \/_/\/_/
+                /\___/                \ \____/
+                \/__/                  \/___/
+
+Powered by Hydejack v9.0.4 <https://hydejack.com/>
+-->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<head>
+  
+
+
+
+
+
+
+  
+    
+
+<title>Donjon CTF SSSGX write-up: linear functions strike back |</title>
+<meta name="description" content="This writeup presents a solution to the SSSGX Wallet stage of the 2020 Ledger
+Donjon’s CTF. It showcases a solution using a kind of generic
+method to exploit the issues that we are facing in this challenge, which
+can basically be reduced to solving a linear system in the vector space
+\(\{0,1\}^N\).
+
+">
+<link rel="canonical" href="https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx.html">
+
+  
+
+  
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta http-equiv="x-ua-compatible" content="ie=edge">
+
+<meta name="mobile-web-app-capable" content="yes">
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+<meta name="application-name" content="">
+
+
+  <meta name="theme-color" content="rgb(0,0,0)">
+
+
+<meta name="generator" content="Hydejack v9.0.4" />
+
+
+<link rel="alternate" href="https://aguinet.github.io//blog/2020/08/29/miasm-bootloader.html" hreflang="en">
+
+<link type="application/atom+xml" rel="alternate" href="https://aguinet.github.io//feed.xml" title="" />
+
+
+<link rel="shortcut icon"    href="/assets/icons/favicon.ico">
+<link rel="apple-touch-icon" href="/assets/icons/icon-192x192.png">
+
+<link rel="manifest" href="/assets/site.webmanifest">
+
+
+  <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+  <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+
+
+
+
+<link rel="preload" href="/assets/img/swipe.svg" as="image" id="_hrefSwipeSVG">
+
+
+
+
+
+
+<script>!function(e,t){"use strict";function n(e,t,n,o){e.addEventListener?e.addEventListener(t,n,o):e.attachEvent?e.attachEvent("on"+t,n):e["on"+t]=n}e.loadJS=function(e,o){var r=t.createElement("script");r.src=e,o&&n(r,"load",o,{once:!0});var a=t.scripts[0];return a.parentNode.insertBefore(r,a),r},e._loaded=!1,e.loadJSDeferred=function(o,r){function a(){e._loaded=!0,r&&n(c,"load",r,{once:!0});var o=t.scripts[0];o.parentNode.insertBefore(c,o)}var c=t.createElement("script");return c.src=o,e._loaded?a():n(e,"load",a,{once:!0}),c},e.setRel=e.setRelStylesheet=function(e){function o(){this.rel="stylesheet"}n(t.getElementById(e),"load",o,{once:!0})}}(window,document);
+!function(a){"use strict";var b=function(b,c,d){function e(a){return h.body?a():void setTimeout(function(){e(a)})}function f(){i.addEventListener&&i.removeEventListener("load",f),i.media=d||"all"}var g,h=a.document,i=h.createElement("link");if(c)g=c;else{var j=(h.body||h.getElementsByTagName("head")[0]).childNodes;g=j[j.length-1]}var k=h.styleSheets;i.rel="stylesheet",i.href=b,i.media="only x",e(function(){g.parentNode.insertBefore(i,c?g:g.nextSibling)});var l=function(a){for(var b=i.href,c=k.length;c--;)if(k[c].href===b)return a();setTimeout(function(){l(a)})};return i.addEventListener&&i.addEventListener("load",f),i.onloadcssdefined=l,l(f),i};"undefined"!=typeof exports?exports.loadCSS=b:a.loadCSS=b}("undefined"!=typeof global?global:this);
+!function(a){if(a.loadCSS){var b=loadCSS.relpreload={};if(b.support=function(){try{return a.document.createElement("link").relList.supports("preload")}catch(b){return!1}},b.poly=function(){for(var b=a.document.getElementsByTagName("link"),c=0;c<b.length;c++){var d=b[c];"preload"===d.rel&&"style"===d.getAttribute("as")&&(a.loadCSS(d.href,d,d.getAttribute("media")),d.rel=null)}},!b.support()){b.poly();var c=a.setInterval(b.poly,300);a.addEventListener&&a.addEventListener("load",function(){b.poly(),a.clearInterval(c)}),a.attachEvent&&a.attachEvent("onload",function(){a.clearInterval(c)})}}}(this);
+!function(w) {
+  w._baseURL = '/';
+  w._publicPath = '/assets/js/';
+  w._noPushState = false;
+  w._noDrawer = true;
+  w._noNavbar = true;
+  w._noToc = false;
+  w._noSearch = true;
+}(window);
+</script>
+
+
+<script async src="/assets/bower_components/MathJax/es5/tex-mml-chtml.js" id="_MathJax"></script>
+
+
+<!--[if gt IE 8]><!---->
+
+  
+
+
+
+
+<link rel="stylesheet" href="/assets/css/hydejack-9.0.4.css" id="_stylePreload">
+<link rel="stylesheet" href="/assets/icomoon/style.css" id="_iconsPreload">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto+Slab:700%7CNoto+Sans:400,400i,700,700i&display=swap" id="_fontsPreload">
+
+
+
+  <style id="_pageStyle">
+
+html{--accent-color: rgb(0,0,0);--accent-color-faded: rgba(0,0,0,0.5);--accent-color-darkened: #000;--theme-color: rgb(0,0,0)}
+
+</style>
+
+
+<!--<![endif]-->
+
+
+
+
+
+</head>
+
+<body class="no-drawer">
+  
+
+
+<hy-push-state
+  id="_pushState"
+  replace-selector="#_main"
+  link-selector="a[href]:not([href^='/assets/']):not(.external):not(.no-push-state)"
+  script-selector="script"
+  duration="500"
+  hashchange
+>
+  
+  
+  <main
+  id="_main"
+  class="content layout-post"
+  role="main"
+>
+  
+
+
+
+
+
+<article id="post-blog-2020-11-22-donjon-ctf-sssgx" class="page post mb6" role="article">
+  <header>
+    <h1 class="post-title flip-project-title">
+      
+        Donjon CTF SSSGX write-up: linear functions strike back
+      
+    </h1>
+
+    <div class="post-date">
+      
+      <time datetime="2020-11-22T00:00:00+01:00">22 Nov 2020</time>
+      
+      
+      
+      
+      
+
+
+
+
+
+
+
+
+
+in <span>Blog</span>
+
+      
+
+
+
+
+
+
+
+
+
+
+
+    </div>
+
+    
+    
+
+    
+
+
+
+  <div class="hr pb0"></div>
+
+
+  </header>
+
+  
+    <p>This writeup presents a solution to the SSSGX Wallet stage of the <a href="https://donjon-ctf.io/">2020 Ledger
+Donjon’s CTF</a>. It showcases a solution using a kind of generic
+method to exploit the issues that we are facing in this challenge, which
+can basically be reduced to solving a linear system in the vector space
+\(\{0,1\}^N\).</p>
+
+<p>We will first <a href="#introduction">describe the challenge</a>, then <a href="#figuring-out-the-problem-to-solve">the generic
+problem to solve</a>, the <a href="#figuring-out-the-vulnerability">vulnerability to
+exploit</a>, and finally <a href="#exploiting-the-vulnerability-and-solving-the-challenge">how to solve the
+challenge</a> using
+<a href="https://www.sagemath.org/">Sage</a> and <a href="https://github.com/aguinet/dragonffi/">DragonFFI</a>!</p>
+
+<p>The full code of this solution is <a href="https://github.com/aguinet/donjonctf_sssgx">available
+on Github</a>.</p>
+
+<p><img src="/assets/2020-11-22-donjon-ctf-sssgx/sssgx_chall.png" alt="" class="center-image" /></p>
+
+<h1 id="introduction">Introduction</h1>
+
+<p>For this challenge, we had access to a web-browser based wallet service
+(and its source code), on which we can create or restore accounts, and
+digitally sign messages with that account.</p>
+
+<p><img src="/assets/2020-11-22-donjon-ctf-sssgx/sssgx_create.png" alt="Create Wallet" class="center-image" /></p>
+
+<p>This system also has the particularity of allowing the user to split the secret
+associated to his account in three “shares”, and to send two of them
+to two other persons, so that he’ll be able to recover his account if the three
+shares are put back together.</p>
+
+<p><img src="/assets/2020-11-22-donjon-ctf-sssgx/sssgx_restore.png" alt="Restore Wallet" class="center-image" /></p>
+
+<p>In the challenge’s data, we are also given a copy of the local storage SQLite
+database of a browser that has been using this service. Indeed, once
+an account has been created on this platform, we can see that a “backup” local
+storage entry appears, with information linked to our account.</p>
+
+<p><img src="/assets/2020-11-22-donjon-ctf-sssgx/sssgx_backup_local_storage.png" alt="Local storage" class="center-image" /></p>
+
+<p>The goal of the challenge is to retrieve the secret associated to that account.</p>
+
+<p>As we have the source code, let’s take a look at it to understand what are
+these data, especially the <code class="language-plaintext highlighter-rouge">backup</code> field.</p>
+
+<h2 id="service-architecture">Service architecture</h2>
+
+<p>The service has actually a quite interesting <a href="https://en.wikipedia.org/wiki/Software_Guard_Extensions">Intel SGX</a>-based
+architecture. What happens when an account is created is:</p>
+
+<ul>
+  <li>a random 32-bytes secret \(S\) is generated in an SGX container. It is later used
+to sign messages using <a href="https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm">ECDSA</a></li>
+  <li>this secret is encrypted and authenticated in the very same container, alongside with
+the email information and the users’ PIN</li>
+  <li>the result is sent back to the user that stores it in its browser local
+storage</li>
+</ul>
+
+<p>When a user asks to sign a message, he has to enter its PIN. The complete
+request, containing the message, the PIN and the encrypted backup, is forwarded
+to the SGX container, which:</p>
+
+<ul>
+  <li>decrypts the backup</li>
+  <li>verifies the users’ PIN</li>
+  <li>signs the message</li>
+</ul>
+
+<p>The signature is then sent back to the user.</p>
+
+<p>If the user wants to send its shares to two of his friends, he just send his
+encrypted backup alongside with the two recipients’ mail address. This is the
+only API we can use with the backup that have been provided in the challenge,
+because the PIN isn’t requested and checked here.</p>
+
+<h1 id="figuring-out-the-problem-to-solve">Figuring out the problem to solve</h1>
+
+<h2 id="what-data-do-we-have">What data do we have</h2>
+
+<p>It looks like solving this challenge would imply using the two shares that the
+server is willing to send us. Using the SQLite database we are provided with,
+we inject it into the browser of our choice, and ask the interface to send the
+shares to two email addresses we control:</p>
+
+<p><img src="/assets/2020-11-22-donjon-ctf-sssgx/sssgx_share.png" alt="Send shares" class="center-image" /></p>
+
+<p>For the sake of history, the two resulting shares are available in the
+<a href="https://github.com/aguinet/donjonctf_sssgx/blob/main/shares.txt">repository of the
+solution</a>.</p>
+
+<p>Now, let’s go back to the code and look at the “data flow” between our victim’s
+secret (what we are looking for) and the two shares we have. Given the name of
+the challenge, we are expecting to find some sharing scheme, like the <a href="https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing">Shamir’s
+Secret Sharing (SSS)</a> one.</p>
+
+<h2 id="what-function-computes-them">What function computes them</h2>
+
+<p>We are interested in isolating the function that computes these two shares
+from the original secret.</p>
+
+<p>From the code, in the file <code class="language-plaintext highlighter-rouge">src/wallet/libwallet/Enclave/Enclave.cpp</code>, the
+function <code class="language-plaintext highlighter-rouge">share_user_seed</code> looks interesting. It is indeed declared as a
+“public endpoint” of the enclave in
+<code class="language-plaintext highlighter-rouge">src/wallet/libwallet/Enclave/Enclave.edl</code>, is wrapped in the function
+<code class="language-plaintext highlighter-rouge">wallet_share_seed</code>, which itself is called by the Node.js server by the <code class="language-plaintext highlighter-rouge">/share</code>
+public REST API, all through of bunch of bindings we don’t describe here. The
+shares we got by email have thus been generated by the <code class="language-plaintext highlighter-rouge">share_user_seed</code>
+function, which looks like this (stripped down for readability):</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">sgx_status_t</span> <span class="nf">share_user_seed</span><span class="p">(</span><span class="n">share_t</span> <span class="n">contact_shares</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span> <span class="k">const</span> <span class="kt">uint8_t</span> <span class="o">*</span><span class="n">blob</span><span class="p">,</span> <span class="kt">uint32_t</span> <span class="n">blob_size</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">password</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">email1</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">email2</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">sgx_status_t</span> <span class="n">status</span><span class="p">;</span>
+    <span class="n">sss_Share</span> <span class="n">shares</span><span class="p">[</span><span class="mi">3</span><span class="p">];</span>
+    <span class="n">user_data_t</span> <span class="n">user_data</span><span class="p">;</span>
+    <span class="kt">uint8_t</span> <span class="n">entropy</span><span class="p">[</span><span class="mi">16</span><span class="p">];</span>
+
+    <span class="c1">// No need to check the password, as one share will always be sent to the owner email address.</span>
+    <span class="c1">// We can assume access to the mail account is enough.</span>
+    <span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="n">password</span><span class="p">;</span>
+
+    <span class="n">unseal_user_data</span><span class="p">(</span><span class="n">blob</span><span class="p">,</span> <span class="n">blob_size</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">user_data</span><span class="p">);</span>
+    <span class="n">sgx_read_rand</span><span class="p">(</span><span class="n">entropy</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">entropy</span><span class="p">));</span>
+    <span class="n">randominit</span><span class="p">(</span><span class="n">entropy</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">entropy</span><span class="p">));</span>
+
+    <span class="kt">uint8_t</span> <span class="n">msg</span><span class="p">[</span><span class="n">sss_MLEN</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="mi">0</span><span class="p">};</span>
+    <span class="n">memcpy</span><span class="p">(</span><span class="n">msg</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">user_data</span><span class="p">.</span><span class="n">key</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">user_data</span><span class="p">.</span><span class="n">key</span><span class="p">));</span>
+    <span class="n">sss_create_shares</span><span class="p">(</span><span class="n">shares</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">);</span> 
+
+    <span class="p">[...]</span>
+    <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">memcpy</span><span class="p">(</span><span class="n">contact_shares</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">data</span><span class="p">,</span> <span class="n">shares</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">sss_SHARE_LEN</span><span class="p">);</span>
+    <span class="p">}</span>   
+    <span class="k">return</span> <span class="n">SGX_SUCCESS</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>It is indeed using <a href="https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing">Shamir’s Secret Sharing (SSS)</a> protocol, splitting
+the secret in three shares and requiring the three of them to recover the
+secret.  The core function that creates these shares is <code class="language-plaintext highlighter-rouge">sss_create_shares</code>,
+which is from the <a href="https://github.com/dsprenkels/sss">sss library</a> by <a href="https://dsprenkels.com/">Daan
+Sprenkels</a>.  This function takes as input the user’s
+secret key (which we are interested in), and returns three shares. Given these
+three shares, it is possible to do the inverse operation, <em>i.e.</em> recompute the
+original user’s secret. As a reminder, we only have two of these shares.</p>
+
+<h2 id="shamirs-secret-sharing-and-its-implementation-in-sss">Shamir’s Secret Sharing, and its implementation in <a href="https://github.com/dsprenkels/sss">sss</a></h2>
+
+<p><a href="https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing">Shamir’s Secret Sharing</a> scheme is a <a href="https://en.wikipedia.org/wiki/Secret_sharing">secret
+sharing</a> scheme. The goal is to
+share a secret between \(n\) participants, and require at least \(k\)
+participants to retrieve it.</p>
+
+<p><a href="https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing">SSS</a> implements this using polynomials. This is best described by the
+<a href="https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing#Shamir's_secret_sharing_scheme">Wikipedia’s
+article</a>
+on the matter:</p>
+
+<blockquote>
+  <p>The essential idea of Adi Shamir’s threshold scheme is that 2 points are
+sufficient to define a line, 3 points are sufficient to define a parabola, 4
+points to define a cubic curve and so forth. That is, it takes \(k\) points to
+define a polynomial of degree \(k-1\).</p>
+</blockquote>
+
+<p>The degree of the polynomial \(P\) will thus be \(k-1\). We embed the secret into
+this polynomial, for instance by setting its constant coefficient \(P(0)\) to the
+secret, and the rest to random values. We then evaluate this polynomial in
+\(N\) points, and share a different \((i,P(i))\) pair with each of the \(K\)
+participants. If we know \(K\) shares, we can retrieve the full polynomial
+using interpolation, and hence retrieve the secret.</p>
+
+<p>In the case of our challenge, for one secret, the <a href="https://github.com/dsprenkels/sss">sss</a> library uses
+32 polynomials with coefficients in the \(GF(2^8)\) space (which are themselves
+polynomials). According to the <a href="https://github.com/dsprenkels/sss/blob/v0.1.0/hazmat.c#L93">source code of the
+library</a>,
+multiplication in \(GF(2^8)\) is reduced by this polynom: \(x^8 + x^4 + x^3 + x + 1\).
+This means that, for this challenge, shares are polynomials, as
+well as coefficients of the Shamir polynomial.</p>
+
+<p>Moreover, for one secret, it uses 32 Shamir polynomials, because one Shamir
+polynomial with coefficients in \(GF(2^8)\) can only <em>store</em> a secret of one byte
+(aka 8 bits). Indeed, as we will <a href="#understanding-the-share-format">see below</a>,
+the library encrypts the secret with a random 32-byte encryption key (which then
+is the actual shared secret), hence the 32 polynomials.</p>
+
+<h3 id="bitslicing">Bitslicing</h3>
+
+<p>In order to make computations with these 32 polynomials efficient, the library
+uses a technique called <em>bitslicing</em>. Instead of working with 32x8-bit integers
+(each integer representing a polynomial over \(GF(2^8)\), it works with
+8x32-bit integers. Each 32-bit integers representing the same coefficient of
+the 32 polynomials. Thus, we can do 32 polynomials computation at once.</p>
+
+<p>This bitslicing transformation can be seen as a transposition of the original
+32x8 bit matrix, which is a linear operation in \(GF(2)^N\) (this is important
+for what’s next).</p>
+
+<h2 id="understanding-the-share-format">Understanding the share format</h2>
+
+<p>The <a href="https://github.com/dsprenkels/sss/#technical-details">sss library’s
+README</a> explains a little
+bit what happens in the
+<a href="https://github.com/dsprenkels/sss/blob/v0.1.0/sss.c#L61"><code class="language-plaintext highlighter-rouge">sss_create_shares</code></a>
+function. Basically, a random 32-bytes key \(K\) is computed, then used to encrypt
+and authenticate the original secret \(S\) with <a href="https://github.com/jedisct1/libsodium">libsodium</a>’s
+<code class="language-plaintext highlighter-rouge">crypto_secretbox</code> function. The rational behind this is explained in the
+aforementioned README.</p>
+
+<p>The <a href="https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing">SSS</a> algorithm is then applied on the key \(K\), creating in
+our case three shares. The share values can then be used in the
+<code class="language-plaintext highlighter-rouge">sss_combine_shares</code>, which recovers the key \(K\), and uses
+<a href="https://github.com/jedisct1/libsodium">libsodium</a>’s <code class="language-plaintext highlighter-rouge">crypto_secretbox_open</code> to verify the integrity of the
+encrypted data and recover the original secret \(S\).</p>
+
+<p>Regarding the share format, analyzing the library’s source code teaches us
+that the result of the <a href="https://en.wikipedia.org/wiki/Authenticated_encryption#Authenticated_encryption_with_associated_data_(AEAD)">Authenticated Encryption with Associated Data
+(AEAD)</a>
+of \(S\) with \(K\) is concatenated to every share. Moreover, each share, at
+its beginning, have its share index encoded in one byte.</p>
+
+<p>So, the final format of a share is:</p>
+
+<ul>
+  <li>First byte: share index (from 1 to 3 in our case)</li>
+  <li>Next 32 bytes: the actual share value (representing the 32 polynomials)</li>
+  <li>Remaining bytes: basically the output of <code class="language-plaintext highlighter-rouge">crypto_secretbox</code>, that encrypts
+&amp; authenticate our original secret \(S\) with the random key \(K\)</li>
+</ul>
+
+<p>What we got from the server is a Base64 encoding of this. If we indeed take a
+closer look at the two shares we received, we can see that the last bytes are
+the same.</p>
+
+<h2 id="the-problem-to-solve">The problem to solve</h2>
+
+<p>With all these information, we can say that the problem to solve can be
+summarized as such:</p>
+
+<ul>
+  <li>given two known shares \((KS_1,KS_2)\) (among the
+original three shares \((KS_0,KS_1,KS_2)\)) of a secret (in our case the
+encryption key \(K\))</li>
+  <li>and given the function \(F(K) = (KS_0,KS_1,KS_2)\),</li>
+</ul>
+
+<p>can we retrieve \(K\) by only having \((KS_1,KS_2)\)?</p>
+
+<p><em>Note: Once we got \(K\), we just need to use <a href="https://github.com/jedisct1/libsodium">libsodium</a> to retrieve the
+original secret \(S\).</em></p>
+
+<h2 id="bibliography">Bibliography</h2>
+
+<p>This challenge has a very strong resemblance to this <a href="https://donjon.ledger.com/Stealing-all-HTC-Exodus-users/">recent blog post</a>,
+and given that Jean-Baptiste Bédrune is now head of security of the Ledger’s
+Donjon, this might not be just a coincidence :)</p>
+
+<h1 id="figuring-out-the-vulnerability">Figuring out the vulnerability</h1>
+
+<p>In theory, if <a href="sss_wiki">SSS</a> is properly implemented, that it isn’t possible to
+recover this secret with only two shares out of the three. So there must be
+some kind of vulnerability in the implementation of this scheme.</p>
+
+<p>We can notice that a customized version of the <a href="https://github.com/dsprenkels/sss">sss</a> library
+has been used. If we look at the differences, we can see that the major ones
+are in the <code class="language-plaintext highlighter-rouge">randombytes.cpp</code> file. Here is part of its implementation:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#define RANDOM_POOL_SIZE 128
+</span><span class="k">static</span> <span class="kt">uint8_t</span> <span class="n">random_pool</span><span class="p">[</span><span class="n">RANDOM_POOL_SIZE</span><span class="p">];</span>
+
+<span class="kt">void</span> <span class="nf">randominit</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">entropy</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">size</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">sgx_sha256_hash_t</span> <span class="n">digest</span><span class="p">;</span>
+  
+  <span class="kt">uint8_t</span> <span class="o">*</span><span class="n">p</span> <span class="o">=</span> <span class="n">random_pool</span><span class="p">;</span>
+  <span class="n">sgx_sha256_msg</span><span class="p">((</span><span class="kt">uint8_t</span> <span class="o">*</span><span class="p">)</span> <span class="n">entropy</span><span class="p">,</span> <span class="p">(</span><span class="kt">uint32_t</span><span class="p">)</span> <span class="n">size</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">digest</span><span class="p">);</span>
+
+  <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">4</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">memcpy</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">digest</span><span class="p">,</span> <span class="n">SGX_SHA256_HASH_SIZE</span><span class="p">);</span>
+    <span class="n">sgx_sha256_msg</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">SGX_SHA256_HASH_SIZE</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">digest</span><span class="p">);</span>
+    <span class="n">p</span> <span class="o">+=</span> <span class="n">SGX_SHA256_HASH_SIZE</span><span class="p">;</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">randombytes</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">buf</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">n</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">n</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="p">}</span>  
+
+  <span class="kt">uint8_t</span> <span class="o">*</span><span class="n">data</span> <span class="o">=</span> <span class="p">(</span><span class="kt">uint8_t</span> <span class="o">*</span><span class="p">)</span><span class="n">buf</span><span class="p">;</span>
+  <span class="k">while</span> <span class="p">(</span><span class="n">n</span> <span class="o">&gt;</span> <span class="n">RANDOM_POOL_SIZE</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">memcpy</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">random_pool</span><span class="p">,</span> <span class="n">RANDOM_POOL_SIZE</span><span class="p">);</span>
+    <span class="n">data</span> <span class="o">+=</span> <span class="n">RANDOM_POOL_SIZE</span><span class="p">;</span>
+    <span class="n">n</span> <span class="o">-=</span> <span class="n">RANDOM_POOL_SIZE</span><span class="p">;</span>
+  <span class="p">}</span>  
+  <span class="n">memcpy</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">random_pool</span><span class="p">,</span> <span class="n">n</span><span class="p">);</span> 
+  <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>One issue here is that the <code class="language-plaintext highlighter-rouge">randombytes</code> function will always return the
+same bytes (looping over a buffer of 128 bytes). This means that, if we call
+twice the <code class="language-plaintext highlighter-rouge">randombytes</code> function to get, say, 32 bytes, we get twice the
+same random 32 bytes. Let’s see where this is used and how we can exploit this.</p>
+
+<h2 id="constant-randomness-usage">Constant randomness usage</h2>
+
+<h3 id="usage-1">Usage 1</h3>
+
+<p>The first place where <code class="language-plaintext highlighter-rouge">randombytes</code> is used is
+<a href="https://github.com/dsprenkels/sss/blob/v0.1.0/sss.c#L73"><code class="language-plaintext highlighter-rouge">sss_create_keyshares</code></a>.
+The <code class="language-plaintext highlighter-rouge">randombytes</code> function is thus used
+to compute the 32-bytes key that encrypts the data to share (see above).</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">void</span> <span class="nf">sss_create_shares</span><span class="p">(</span><span class="n">sss_Share</span> <span class="o">*</span><span class="n">out</span><span class="p">,</span> <span class="k">const</span> <span class="kt">unsigned</span> <span class="kt">char</span> <span class="o">*</span><span class="n">data</span><span class="p">,</span>
+                       <span class="kt">uint8_t</span> <span class="n">n</span><span class="p">,</span> <span class="kt">uint8_t</span> <span class="n">k</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="c1">// ...</span>
+  <span class="kt">unsigned</span> <span class="kt">char</span> <span class="n">key</span><span class="p">[</span><span class="mi">32</span><span class="p">];</span>
+  <span class="cm">/* Generate a random encryption key */</span>
+  <span class="n">randombytes</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">key</span><span class="p">));</span>
+
+  <span class="cm">/* AEAD encrypt the data with the key */</span>
+  <span class="n">memcpy</span><span class="p">(</span><span class="o">&amp;</span><span class="n">m</span><span class="p">[</span><span class="n">crypto_secretbox_ZEROBYTES</span><span class="p">],</span> <span class="n">data</span><span class="p">,</span> <span class="n">sss_MLEN</span><span class="p">);</span>
+  <span class="n">crypto_secretbox</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="n">m</span><span class="p">,</span> <span class="n">mlen</span><span class="p">,</span> <span class="n">nonce</span><span class="p">,</span> <span class="n">key</span><span class="p">);</span>
+
+  <span class="cm">/* Generate KeyShares */</span>
+  <span class="n">sss_create_keyshares</span><span class="p">(</span><span class="n">keyshares</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">k</span><span class="p">);</span>
+</code></pre></div></div>
+
+<h3 id="usage-2">Usage 2</h3>
+
+<p>The next place where <code class="language-plaintext highlighter-rouge">randombytes</code> is used is in
+<a href="https://github.com/dsprenkels/sss/blob/v0.1.0/hazmat.c#L298"><code class="language-plaintext highlighter-rouge">sss_create_keyshares</code></a>
+in order to generate the various set of polynomials involved:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">void</span>
+<span class="nf">sss_create_keyshares</span><span class="p">(</span><span class="n">sss_Keyshare</span> <span class="o">*</span><span class="n">out</span><span class="p">,</span>
+                      <span class="k">const</span> <span class="kt">uint8_t</span> <span class="n">key</span><span class="p">[</span><span class="mi">32</span><span class="p">],</span>
+                      <span class="kt">uint8_t</span> <span class="n">n</span><span class="p">,</span>
+                      <span class="kt">uint8_t</span> <span class="n">k</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="c1">// ...</span>
+  <span class="kt">uint32_t</span> <span class="n">poly0</span><span class="p">[</span><span class="mi">8</span><span class="p">],</span> <span class="n">poly</span><span class="p">[</span><span class="n">k</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">8</span><span class="p">];</span>
+
+  <span class="cm">/* Put the secret in the bottom part of the polynomial */</span>
+	<span class="n">bitslice</span><span class="p">(</span><span class="n">poly0</span><span class="p">,</span> <span class="n">key</span><span class="p">);</span>
+
+  <span class="cm">/* Generate the other terms of the polynomial */</span>
+  <span class="n">randombytes</span><span class="p">((</span><span class="kt">void</span><span class="o">*</span><span class="p">)</span> <span class="n">poly</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">poly</span><span class="p">));</span>
+  <span class="c1">//...</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>In our case, \(k\) (number of shares needed to retrieve the secret) is three,
+as long as \(n\) (number of total shares).  We thus have 3 sets of 32
+polynomials with coefficients in \(GF(2^8)\):</p>
+
+<ul>
+  <li>one \(P_0\) set, which is the key \(K\)</li>
+  <li>two other ones \((P_1,P_2)\), which are chosen randomly using <code class="language-plaintext highlighter-rouge">randombytes</code>.</li>
+</ul>
+
+<p>With all these informations, let’s refine a little bit our problem to solve.</p>
+
+<h2 id="the-refined-problem-to-solve">The refined problem to solve</h2>
+
+<p>As the representation of a set of 32 polynomials is composed of 32 8-bit
+integers (which means 32 bytes), due to the vulnerability <a href="#figuring-out-the-vulnerability">explained
+above</a>, this means that the first set of
+polynomials’ coefficients are directly tied to the 32-bytes random key \(K\).</p>
+
+<p>This means that, from the description of the problem we gave above, we can
+refine the problem as such:</p>
+
+<ul>
+  <li>with \(F\) a function that, given \((K,P_2)\), generates \((KS_1,KS_2)\), the problem is, knowing \((KS_1,KS_2)\), to retrieve \((K,P_2)\).</li>
+  <li>stated differently, we want to solve the equation \(F(K,P_2) = (KS_1,KS_2)\) (knowing \((KS_1,KS_2)\)).</li>
+</ul>
+
+<p>We can also note that \((K,P_2)\) is \(32+32=64\) bytes, as well as
+\((KS_1,KS_2)\). Let’s now take a closer look at \(F\).</p>
+
+<h2 id="analyzing-f">Analyzing <code class="language-plaintext highlighter-rouge">F</code></h2>
+
+<p>We can split the code of the <code class="language-plaintext highlighter-rouge">sss_create_keyshares</code> function, so that our function \(F\)
+becomes more explicit:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">extern</span> <span class="s">"C"</span> <span class="kt">void</span>
+<span class="nf">sss_create_keyshares_impl</span><span class="p">(</span><span class="n">sss_Keyshare</span> <span class="o">*</span><span class="n">out</span><span class="p">,</span>
+    <span class="k">const</span> <span class="kt">uint8_t</span> <span class="n">key</span><span class="p">[</span><span class="mi">32</span><span class="p">],</span>
+    <span class="k">const</span> <span class="kt">uint32_t</span><span class="o">*</span> <span class="n">poly</span><span class="p">,</span>
+    <span class="kt">uint8_t</span> <span class="n">n</span><span class="p">,</span>
+    <span class="kt">uint8_t</span> <span class="n">k</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="kt">uint8_t</span> <span class="n">share_idx</span><span class="p">,</span> <span class="n">coeff_idx</span><span class="p">,</span> <span class="n">unbitsliced_x</span><span class="p">;</span>
+  <span class="kt">uint32_t</span> <span class="n">poly0</span><span class="p">[</span><span class="mi">8</span><span class="p">],</span> <span class="n">x</span><span class="p">[</span><span class="mi">8</span><span class="p">],</span> <span class="n">y</span><span class="p">[</span><span class="mi">8</span><span class="p">],</span> <span class="n">xpow</span><span class="p">[</span><span class="mi">8</span><span class="p">],</span> <span class="n">tmp</span><span class="p">[</span><span class="mi">8</span><span class="p">];</span>
+
+  <span class="cm">/* Put the secret in the bottom part of the polynomial */</span>
+  <span class="n">bitslice</span><span class="p">(</span><span class="n">poly0</span><span class="p">,</span> <span class="n">key</span><span class="p">);</span>
+
+  <span class="k">for</span> <span class="p">(</span><span class="n">share_idx</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">share_idx</span> <span class="o">&lt;</span> <span class="n">n</span><span class="p">;</span> <span class="n">share_idx</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+    <span class="cm">/* x value is in 1..n */</span>
+    <span class="n">unbitsliced_x</span> <span class="o">=</span> <span class="n">share_idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="n">out</span><span class="p">[</span><span class="n">share_idx</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">unbitsliced_x</span><span class="p">;</span>
+    <span class="n">bitslice_setall</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">unbitsliced_x</span><span class="p">);</span>
+
+    <span class="cm">/* Calculate y */</span>
+    <span class="n">memset</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">y</span><span class="p">));</span>
+    <span class="n">memset</span><span class="p">(</span><span class="n">xpow</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">xpow</span><span class="p">));</span>
+    <span class="n">xpow</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="o">~</span><span class="mi">0</span><span class="p">;</span> 
+    <span class="n">gf256_add</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">poly0</span><span class="p">);</span>
+    <span class="k">for</span> <span class="p">(</span><span class="n">coeff_idx</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">coeff_idx</span> <span class="o">&lt;</span> <span class="p">(</span><span class="n">k</span><span class="o">-</span><span class="mi">1</span><span class="p">);</span> <span class="n">coeff_idx</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+      <span class="n">gf256_mul</span><span class="p">(</span><span class="n">xpow</span><span class="p">,</span> <span class="n">xpow</span><span class="p">,</span> <span class="n">x</span><span class="p">);</span> 
+      <span class="n">gf256_mul</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span> <span class="n">xpow</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">poly</span><span class="p">[</span><span class="n">coeff_idx</span><span class="o">*</span><span class="mi">8</span><span class="p">]);</span>
+      <span class="n">gf256_add</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">tmp</span><span class="p">);</span>
+    <span class="p">}</span>   
+    <span class="n">unbitslice</span><span class="p">(</span><span class="o">&amp;</span><span class="n">out</span><span class="p">[</span><span class="n">share_idx</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">y</span><span class="p">);</span> 
+  <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="kt">void</span>
+<span class="nf">sss_create_keyshares</span><span class="p">(</span><span class="n">sss_Keyshare</span> <span class="o">*</span><span class="n">out</span><span class="p">,</span>
+                      <span class="k">const</span> <span class="kt">uint8_t</span> <span class="n">key</span><span class="p">[</span><span class="mi">32</span><span class="p">],</span>
+                      <span class="kt">uint8_t</span> <span class="n">n</span><span class="p">,</span>
+                      <span class="kt">uint8_t</span> <span class="n">k</span><span class="p">)</span>
+<span class="p">{</span>
+
+  <span class="kt">uint32_t</span> <span class="n">poly</span><span class="p">[</span><span class="n">k</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">8</span><span class="p">];</span>
+  <span class="cm">/* Generate the other terms of the polynomial */</span>
+  <span class="n">randombytes</span><span class="p">((</span><span class="kt">void</span><span class="o">*</span><span class="p">)</span> <span class="n">poly</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">poly</span><span class="p">));</span>
+
+  <span class="n">sss_create_keyshares_impl</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">poly</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">n</span><span class="p">,</span> <span class="n">k</span><span class="p">);</span> 
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>In this code, \(F\) is <code class="language-plaintext highlighter-rouge">sss_create_keyshares_impl</code>, called with <code class="language-plaintext highlighter-rouge">n=3</code> and
+<code class="language-plaintext highlighter-rouge">k=3</code>. Moreover, due to the <a href="#figuring-out-the-vulnerability">previously exposed
+issue</a> the 32 bytes of key are the sames as
+the first 32 bytes of <code class="language-plaintext highlighter-rouge">polys</code>. This function basically implements the
+<a href="https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing">SSS</a> protocol. As <a href="#shamirs-secret-sharing-and-its-implementation-in-sss">seen
+before</a>, it’s using sets
+of 32 polynomials with coefficients in the \(GF(2^8)\) space.</p>
+
+<p>As discussed in <a href="#annex-a-gf28-versus-gf2n">Annex A</a>, multiplications by
+constant polynomials and additions in \(GF(2^8)\) can also be represented as
+linear functions in the \(GF(2)^8\) space. This can help us tell that the
+function \(F\) is linear in the \(GF(2)^{512}\) space.</p>
+
+<p>Indeed, let’s take a closer look at the computation of one byte of the \(i\)-th
+share. This is basically evaluating a polynomial \(A\) of degree \(k-1=2\) (with coefficients
+\(a_i\) in \(GF(2^8)\)) in \(i\). With \(C_i\) the polynomial representation of
+\(i\) in \(GF(2^8)\) (e.g. here with \(i=3 \implies C_i = 1+x\)):</p>
+
+\[\begin{align*}
+A(C_i) &amp;= a_0 + a_1*C_i + a_2*C_i^2 \\
+ &amp;= a_0 + a_1*(1+x) + a_2*(1+x)^2 \\
+ &amp;= a_0 + a_1*(1+x) + a_2*(1+x^2) \\
+ &amp;= (a_0+a_1+a_2) + a_1*x + a_2*x^2
+\end{align*}\]
+
+<p>With \(a_i = \sum_{j=0}^{7} (b_{i,j}*x^j)\), we end up with a polynomial in
+\(GF(2^8)\), whose coefficients are linear combinations of \((b_{ij})\). So,
+for this specific share, we can rewrite this operation in \(GF(2)^{8*3}\) as:</p>
+
+\[M_i\times\begin{pmatrix}b_{0,0} \\ b_{0,1} \\ \dots \\ b_{0,7} \\ b_{1,0} \\ \dots \\ b_{2,7} \end{pmatrix}\]
+
+<p>with \(M_i\) a \(24 \times 8\) bit matrix.</p>
+
+<p>Moreover, as <a href="#bitslicing">said above</a>, the bitslicing part is <em>just</em> an
+optimisation, and can also be seen as a linear function. We can notice that the
+<code class="language-plaintext highlighter-rouge">sss_create_keyshares_impl</code> takes “unbitsliced” inputs, and returns
+“unbitsliced” outputs. So, in the end, we don’t really have to take care about this
+internal representation and optimisation.</p>
+
+<p>Finally, we can say that our problem basically boils down to solving
+a linear system in \(GF(2)^{512}\)! What we miss is the representation of \(F\)
+in that space.</p>
+
+<p><em>Note: we don’t necessary need to precisely understand all these things to
+solve the challenge. We can make the assumption that \(F\) will be linear in
+the \(GF(2)^{512}\) vector space, and quickly try if that’s the case (see the
+<a href="https://github.com/aguinet/donjonctf_sssgx/blob/main/attack.py#L50">provided source
+code</a> for
+an example).</em></p>
+
+<h1 id="exploiting-the-vulnerability-and-solving-the-challenge">Exploiting the vulnerability (and solving the challenge)</h1>
+
+<p>Let’s recap what we have to do:</p>
+
+<ul>
+  <li>we know the key shares \((KS_1,KS_2)\), which are both 32-bytes long</li>
+  <li>we have the function \(F\), which can be represented as a linear function
+in the \(GF(2)^{512}\) vector space. We have the code of that function, so we
+can evaluate it</li>
+  <li>we have to retrieve the original secret by solving the equation \(F(K,P_2) == (KS_1,KS_2)\)</li>
+</ul>
+
+<p>As \(F\) is a linear function in \(GF(2)^{512}\), it can be represented by a
+512 square bit matrix \(M\). Remember, \(GF(2)\) basically means \(\{0,1\}\) (it’s
+a bit), and the size of \((K,P_2)\) and \((KS_1,KS_2)\) is 64 <strong>bytes</strong>.</p>
+
+<p>So, in the end, we want to solve this equation:</p>
+
+\[M\times\begin{pmatrix}K \\ P_2\end{pmatrix} = \begin{pmatrix}KS_1 \\ KS_2\end{pmatrix}\]
+
+<p>Note that \(M\) might not be invertible, so it might not be “as simple”
+as writing the inverse of \(F\) and compute it.</p>
+
+<h2 id="computing-m-using-dragonffi">Computing \(M\) using DragonFFI</h2>
+
+<p>One thing that remains is to compute the matrix \(M\). There are basically two ways to do this:</p>
+
+<ul>
+  <li>compute the matrix <em>by hand</em>, by composing all the various operations that
+are happening in \(F\). This is a bit time consuming and potentially
+error-prone.</li>
+  <li>evaluate \(F\) 512 times to compute the values of the column of \(M\).
+Indeed, if, for every column index \(i\) of \(M\), we compute \(F(V)\), with
+V a bit vector with only the \(i\)-th index at 1 (and the others at zero), then
+we directly get the vector of the column \(i\) of \(M\).</li>
+</ul>
+
+<p>Let’s go for the second option, and do that using <a href="dffi">DragonFFI</a> to directly
+call <code class="language-plaintext highlighter-rouge">sss_create_keyshares_impl</code> from Python:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">pydffi</span>
+<span class="n">FFI</span><span class="o">=</span><span class="n">pydffi</span><span class="p">.</span><span class="n">FFI</span><span class="p">()</span>
+<span class="n">CU</span><span class="o">=</span><span class="n">FFI</span><span class="p">.</span><span class="n">cdef</span><span class="p">(</span><span class="s">'''
+#include &lt;stdint.h&gt;
+void sss_create_keyshares_impl(uint8_t *out,
+  const uint8_t* key,
+  const uint8_t* poly, // was uint32_t*
+  uint8_t n,
+  uint8_t k);
+'''</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">polys_to_keyshares</span><span class="p">(</span><span class="n">polys</span><span class="p">):</span>
+    <span class="k">assert</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">polys</span><span class="p">)</span> <span class="o">==</span> <span class="n">LEN_POLYS</span><span class="p">)</span>
+    <span class="c1"># This is due to the random generator reusing the same data (this is the vuln we are exploiting).
+</span>    <span class="n">key</span> <span class="o">=</span> <span class="n">polys</span><span class="p">[:</span><span class="n">LEN_KEY</span><span class="p">]</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">([</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="n">LEN_KEYSHARES</span><span class="p">)</span>
+    <span class="n">CU</span><span class="p">.</span><span class="n">funcs</span><span class="p">.</span><span class="n">sss_create_keyshares_impl</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">polys</span><span class="p">,</span> <span class="n">NSHARES</span><span class="p">,</span> <span class="n">NSHARES</span><span class="p">)</span>
+    <span class="n">ret</span> <span class="o">=</span> <span class="p">(</span><span class="n">out</span><span class="p">[:</span><span class="n">LEN_KEYSHARE</span><span class="p">],</span> <span class="n">out</span><span class="p">[</span><span class="n">LEN_KEYSHARE</span><span class="p">:</span><span class="mi">2</span><span class="o">*</span><span class="n">LEN_KEYSHARE</span><span class="p">],</span> <span class="n">out</span><span class="p">[</span><span class="mi">2</span><span class="o">*</span><span class="n">LEN_KEYSHARE</span><span class="p">:])</span>
+    <span class="k">return</span> <span class="n">ret</span>
+
+<span class="k">def</span> <span class="nf">kss_to_F_output</span><span class="p">(</span><span class="n">kss</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">kss</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">:]</span> <span class="o">+</span> <span class="n">kss</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="mi">1</span><span class="p">:]</span>
+
+<span class="c1"># This is our function F. It takes 64 bytes as input (two polynoms), and
+# returns the last two shares (2*32 bytes)
+</span><span class="k">def</span> <span class="nf">F</span><span class="p">(</span><span class="n">in_</span><span class="p">):</span>
+    <span class="n">kss</span> <span class="o">=</span> <span class="n">polys_to_keyshares</span><span class="p">(</span><span class="n">in_</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">kss_to_F_output</span><span class="p">(</span><span class="n">kss</span><span class="p">)</span>
+
+<span class="c1"># We work with vector of bits, so we choose a way to transform a list of bytes
+# into a list of bits and vice versa. Any representation would work, as long as
+# bytes2bits is the inverse of bits2bytes. Implementation is in the provided
+# source code.
+</span><span class="k">def</span> <span class="nf">bits2bytes</span><span class="p">(</span><span class="n">v</span><span class="p">):</span>
+  <span class="c1"># ...
+</span>
+<span class="k">def</span> <span class="nf">bytes2bits</span><span class="p">(</span><span class="n">v</span><span class="p">):</span>
+  <span class="c1"># ...
+</span>
+<span class="kn">from</span> <span class="nn">sage.all</span> <span class="kn">import</span> <span class="n">Integers</span><span class="p">,</span> <span class="n">Matrix</span><span class="p">,</span> <span class="n">vector</span>
+<span class="n">GF2</span><span class="o">=</span><span class="n">Integers</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">computeFMatrix</span><span class="p">(</span><span class="n">F</span><span class="p">,</span> <span class="n">input_nbits</span><span class="p">):</span>
+    <span class="n">ret_cols</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">bin_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">input_nbits</span><span class="p">):</span>
+        <span class="n">in_</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="n">NBITS</span>
+        <span class="n">in_</span><span class="p">[</span><span class="n">bin_</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="n">in_</span> <span class="o">=</span> <span class="n">bits2bytes</span><span class="p">(</span><span class="n">in_</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">F</span><span class="p">(</span><span class="n">in_</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">bytes2bits</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+        <span class="n">ret_cols</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">Matrix</span><span class="p">(</span><span class="n">GF2</span><span class="p">,</span> <span class="n">ret_cols</span><span class="p">).</span><span class="n">transpose</span><span class="p">()</span>
+<span class="n">NBITS</span><span class="o">=</span><span class="mi">64</span><span class="o">*</span><span class="mi">8</span>
+<span class="n">M</span><span class="o">=</span><span class="n">computeFMatrix</span><span class="p">(</span><span class="n">F</span><span class="p">,</span> <span class="n">NBITS</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h2 id="solving-the-problem-with-sage">Solving the problem with sage</h2>
+
+<p>Now that we got the matrix, it’s a matter of asking <a href="https://www.sagemath.org/">Sage</a> to solve the
+problem for us.</p>
+
+<p>The first thing we can verify is the size of the kernel of \(M\), that is the
+number of vector \(X\) for which \(M \times X == 0\). This will basically gives us the
+number of possible solutions to the problem:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">print</span><span class="p">(</span><span class="n">M</span><span class="p">.</span><span class="n">kernel</span><span class="p">())</span>
+</code></pre></div></div>
+
+<p>which gives:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Vector space of degree 512 and dimension 2 over Ring of integers modulo 2
+Basis matrix:
+2 x 512 dense matrix over Ring of integers modulo 2
+</code></pre></div></div>
+
+<p>As the dimension of the result vector space is \(2\), we will have \(2^2 = 4\)
+potential solutions, which is fine to bruteforce :)</p>
+
+<p>Now, let’s ask <a href="https://www.sagemath.org/">Sage</a> to finally solve this:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># Get all possible values of X in M*X = C thanks to Sage
+</span><span class="k">def</span> <span class="nf">allsols</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">C</span><span class="p">):</span>
+    <span class="n">S0</span> <span class="o">=</span> <span class="n">M</span><span class="p">.</span><span class="n">solve_right</span><span class="p">(</span><span class="n">vector</span><span class="p">(</span><span class="n">GF2</span><span class="p">,</span><span class="n">bytes2bits</span><span class="p">(</span><span class="n">C</span><span class="p">)))</span>
+    <span class="k">for</span> <span class="n">S</span> <span class="ow">in</span> <span class="n">M</span><span class="p">.</span><span class="n">right_kernel</span><span class="p">():</span>
+        <span class="k">yield</span> <span class="n">S</span> <span class="o">+</span> <span class="n">S0</span>
+
+<span class="c1"># We extract the two shares from the mails we received
+</span><span class="n">Fout</span> <span class="o">=</span> <span class="n">shares</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">+</span><span class="n">shares</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span>
+<span class="n">keys</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="k">for</span> <span class="n">S</span> <span class="ow">in</span> <span class="n">allsols</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">Fout</span><span class="p">):</span>
+    <span class="n">S</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">S</span><span class="p">]</span>
+    <span class="c1"># The solution will give us the encryption K and the polynom P2. We only
+</span>    <span class="c1"># care about K here.
+</span>    <span class="n">key</span> <span class="o">=</span> <span class="n">bits2bytes</span><span class="p">(</span><span class="n">S</span><span class="p">)[:</span><span class="mi">32</span><span class="p">]</span>
+    <span class="k">print</span><span class="p">(</span><span class="s">"[x] Possible key: %s"</span> <span class="o">%</span> <span class="n">key</span><span class="p">.</span><span class="nb">hex</span><span class="p">())</span>
+    <span class="n">keys</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+</code></pre></div></div>
+
+<h2 id="recovering-the-original-private-key">Recovering the original private key</h2>
+
+<p>Last part is to bruteforce these 4 keys and retrieve the original secret:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">keys</span><span class="p">:</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">([</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="mi">64</span><span class="p">)</span>
+    <span class="c1"># sss_decrypt is basically a wrapper around crypto_secretbox_open
+</span>    <span class="c1"># added to the sss lib (source code in the provided repository)
+</span>    <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">CU</span><span class="p">.</span><span class="n">funcs</span><span class="p">.</span><span class="n">sss_decrypt</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="n">k</span><span class="p">))</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">"[+] Original secret found: %s"</span> <span class="o">%</span> <span class="n">out</span><span class="p">.</span><span class="nb">hex</span><span class="p">())</span>
+        <span class="n">sys</span><span class="p">.</span><span class="nb">exit</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p>To get the flag, we just had to give the found secret to a script that would
+verify that it is indeed the private key associated to the challenge’s wallet
+public key, and output the flag as <code class="language-plaintext highlighter-rouge">CTF{secret_in_hex}</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  $ python ./check_flag.py 7d486b4cfdb1ede284802029e77ab292c35ab0d7b9d8c51a06b9222e5095e98c
+  CTF{7d486b4cfdb1ede284802029e77ab292c35ab0d7b9d8c51a06b9222e5095e98c}
+</code></pre></div></div>
+
+<p>And that’s it!</p>
+
+<h1 id="conclusion">Conclusion</h1>
+
+<p>That was a very nice challenge, which showcases how a <em>simple</em> vulnerability in a random generator can break an apparently well designed system!</p>
+
+<h1 id="acknowledgment">Acknowledgment</h1>
+
+<p>Thanks to ssp for reviewing this writeup at 11PM, and the Donjon Ledger team for this CTF!</p>
+
+<h1 id="annex-a-gf2n-versus-gf2n">Annex A: \(GF(2^N)\) versus \(GF(2)^N\)</h1>
+
+<p>This annex explains why some operations in \(GF(2^N)\) can be represented as
+linear operation in the vector space \(GF(2)^N\) (which means a vector space using
+vectors of N bits).</p>
+
+<p>\(GF(2^N)\) represents polynomials with coefficients in \(GF(2)\) (aka a bit).
+For instance, for \(N = 8\): \(P(x) = a_0 + a_1*x + a_2*x^2 + ... + a_7*x^7\).
+As each coefficient is a bit, we can also represent them as bits. Let’s call
+that representation <code class="language-plaintext highlighter-rouge">bits(P)</code>.</p>
+
+<p>Additions and multiplications are the usual ones. Addition of two polynomials A
+and B gives:</p>
+
+\[A(x) + B(x) = (a_0+b_0) + (a_1+b_1)*x + ... + (a_7+b_7)*x^7\]
+
+<p>As coefficients are in \(GF(2)\), the addition can be seen as a simple XOR
+operation. This means that \(A+B\) == <code class="language-plaintext highlighter-rouge">poly(bits(A)^bits(B))</code>. With \(BA\) and
+\(BV\) in \(GF(2)^8\), this also means that this polynomial addition can also
+be represented as a simple \(BA + BV\) vector addition in this vector space.</p>
+
+<p>Multiplications in \(GF(2^N)\) are reduced to a fixed polynomial. Multiplying
+a unknown polynomial \(X\) with a known polynomial \(C\) can also be represented as
+a linear operation \(M_C \times X\) in \(GF(2)^N\) (with \(M_C\) an NxN bit matrix). Let’s
+just take an example to give the intuition behind this, with \(N = 4\), \(C = 1+x^2\),
+and \(x^4 + x + 1\) the reduction polynomial:</p>
+
+\[\begin{align*}
+A(x)*C &amp;= (a_0+a_1*x+a_2*x^2+a_3*x^3)*(1+x^2) \\
+ &amp;= a_0 + a_1*x + (a_2 + a_0)*x^2 + (a_3 + a_1)*x^3 + a_2*x^4 + a_3*x^5
+\end{align*}\]
+
+<p>Reduced \(\pmod{x^4 + x + 1}\), we have</p>
+
+\[\begin{align*}
+  x^4 &amp;= x + 1   &amp; \pmod{x^4 + x + 1}\\
+  x^5 &amp;= x^2 + x &amp; \pmod{x^4 + x + 1}
+\end{align*}\]
+
+<p>Which gives us:</p>
+
+\[\begin{split}
+&amp;A(x)*C \pmod{x^4 + x + 1} \\
+&amp;   = a_0 + a_1*x + (a_2 + a_0)*x^2 + (a_3 + a_1)*x^3 + a_2*(x + 1) + a_3*(x^2 + x) \\
+&amp;   = (a_0 + a_2) + (a_1 + a_2 + a_3)*x + (a_0 + a_2 + a_3)*x^2 + (a_1 + a_3)*x^3
+\end{split}\]
+
+<p>If we model \(A\) as a 4-bit vector in \(GF(2)^4\), we can represent \(A(x)*C\)
+as a linear operation \(M_C \times A\), with \(M_C\) a 4x4-bit matrix:</p>
+
+\[\begin{pmatrix}
+1 &amp; 0 &amp; 1 &amp; 0 \\
+0 &amp; 1 &amp; 1 &amp; 1 \\
+1 &amp; 0 &amp; 1 &amp; 1 \\
+0 &amp; 1 &amp; 0 &amp; 1
+\end{pmatrix}
+\times
+\begin{pmatrix}
+a_0 \\
+a_1 \\
+a_2 \\
+a_3 \\
+\end{pmatrix}\]
+
+
+  
+</article>
+
+
+<hr class="dingbat related" />
+
+
+
+
+  
+     
+
+
+
+  
+
+  
+  
+
+  
+    
+
+
+  <aside class="related mb4" role="complementary">  <h2 class="hr-bottom">Related Posts</h2>  <ul class="related-posts">                  <li class="h4">  <a href="/blog/2020/10/05/dragonffi-library-lifting.html" class="flip-title"><span>Lifting shared libraries & PIE binaries with DragonFFI (and LIEF)</span></a>  <time class="faded fine" datetime="2020-10-05T00:00:00+02:00">05 Oct 2020</time></li>                        <li class="h4">  <a href="/blog/2020/08/29/miasm-bootloader.html" class="flip-title"><span>Emulating NotPetya bootloader with Miasm</span></a>  <time class="faded fine" datetime="2020-08-29T00:00:00+02:00">29 Aug 2020</time></li>            </ul></aside>
+
+  
+
+  
+  
+
+  
+    
+
+  
+
+
+  
+<footer class="content" role="contentinfo">
+  <hr/>
+  
+    <p><small class="copyright">© 2020. All rights reserved.
+</small></p>
+  
+  
+    <p><small>Powered by <a class="external" href="https://hydejack.com/">Hydejack</a> v<span id="_version">9.0.4</span></small></p>
+  <hr class="sr-only"/>
+</footer>
+
+
+</main>
+
+  <hy-drawer
+  id="_drawer"
+  class=""
+  side="left"
+  threshold="10"
+  noscroll
+  
+>
+  <header id="_sidebar" class="sidebar" role="banner">
+    
+
+
+
+
+<div class="sidebar-bg " style="background-color:rgb(0,0,0);"></div>
+
+    <div class="sidebar-sticky">
+  <nav class="sidebar-nav heading" role="navigation">
+    <span class="sr-only">Navigation:</span>
+<ul>
+  
+    
+      
+      <li>
+        <a
+          id="_drawer--opened"
+          href="/blog/"
+          class="sidebar-nav-item"
+          
+        >
+          Blog
+        </a>
+      </li>
+    
+      
+      <li>
+        <a
+          
+          href="/software/"
+          class="sidebar-nav-item"
+          
+        >
+          Software
+        </a>
+      </li>
+    
+      
+      <li>
+        <a
+          
+          href="/pubs/"
+          class="sidebar-nav-item"
+          
+        >
+          Publications
+        </a>
+      </li>
+    
+  
+</ul>
+
+  </nav>
+
+  
+  <div class="sidebar-social">
+    <span class="sr-only">Social</span>
+<ul>
+  
+    
+    
+      
+
+
+
+  
+
+  
+  
+  
+  
+
+  
+
+  
+
+  <li>
+    <a href="https://twitter.com/adriengnt" title="Twitter" class="no-mark-external">
+      <span class="icon-twitter"></span>
+      <span class="sr-only">Twitter</span>
+    </a>
+  </li>
+
+
+    
+
+    
+    
+      
+
+
+
+  
+
+  
+  
+  
+  
+
+  
+
+  
+
+  <li>
+    <a href="https://github.com/aguinet" title="GitHub" class="no-mark-external">
+      <span class="icon-github"></span>
+      <span class="sr-only">GitHub</span>
+    </a>
+  </li>
+
+
+    
+
+    
+    
+  
+</ul>
+
+  </div>
+</div>
+
+  </header>
+</hy-drawer>
+<hr class="sr-only" hidden />
+
+</hy-push-state>
+
+
+  <!--[if gt IE 10]><!---->
+  <script nomodule>!function(){var e=document.createElement("script");if(!("noModule"in e)&&"onbeforeload"in e){var t=!1;document.addEventListener("beforeload",function(n){if(n.target===e)t=!0;else if(!n.target.hasAttribute("nomodule")||!t)return;n.preventDefault()},!0),e.type="module",e.src=".",document.head.appendChild(e),e.remove()}}();
+</script>
+  <script src="/assets/js/hydejack-9.0.4.js" type="module"></script>
+  <script src="/assets/js/LEGACY-hydejack-9.0.4.js" nomodule defer></script>
+  
+
+  
+
+<!--<![endif]-->
+  
+
+
+
+<div hidden>
+  
+  <h2 class="sr-only">Templates:</h2>
+
+  <template id="_animation-template">
+  <div class="animation-main fixed-top">
+    <div class="content">
+      <div class="page"></div>
+    </div>
+  </div>
+</template>
+
+  <template id="_loading-template">
+  <div class="loading nav-btn fr">
+    <span class="sr-only">Loading…</span>
+    <span class="icon-cog"></span>
+  </div>
+</template>
+
+  <template id="_error-template">
+  <div class="page">
+    <h1 class="page-title">Error</h1>
+    
+    
+    <p class="lead">
+      Sorry, an error occurred while loading: <a class="this-link" href=""></a>.
+    </p>
+  </div>
+</template>
+
+  <template id="_forward-template">
+  <button id="_forward" class="forward nav-btn no-hover">
+    <span class="sr-only">Forward</span>
+    <span class="icon-arrow-right2"></span>
+  </button>
+</template>
+
+  <template id="_back-template">
+  <button id="_back" class="back nav-btn no-hover">
+    <span class="sr-only">Back</span>
+    <span class="icon-arrow-left2"></span>
+  </button>
+</template>
+
+  <template id="_permalink-template">
+  <a href="#" class="permalink">
+    <span class="sr-only">Permalink</span>
+    <span class="content-hash"></span>
+  </a>
+</template>
+
+</div>
+
+
+</body>
+</html>

@@ -1,4 +1,718 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://jekyllrb.com/" version="4.1.1">Jekyll</generator><link href="https://aguinet.github.io//feed.xml" rel="self" type="application/atom+xml" /><link href="https://aguinet.github.io//" rel="alternate" type="text/html" hreflang="en" /><updated>2020-10-05T09:12:07+02:00</updated><id>https://aguinet.github.io//feed.xml</id><subtitle></subtitle><entry><title type="html">Lifting shared libraries &amp;amp; PIE binaries with DragonFFI (and LIEF)</title><link href="https://aguinet.github.io//blog/2020/10/05/dragonffi-library-lifting.html" rel="alternate" type="text/html" title="Lifting shared libraries &amp;amp; PIE binaries with DragonFFI (and LIEF)" /><published>2020-10-05T00:00:00+02:00</published><updated>2020-10-05T00:00:00+02:00</updated><id>https://aguinet.github.io//blog/2020/10/05/dragonffi-library-lifting</id><content type="html" xml:base="https://aguinet.github.io//blog/2020/10/05/dragonffi-library-lifting.html">&lt;p&gt;&lt;a href=&quot;https://github.com/aguinet/dragonffi/releases/tag/dffi-0.6.0&quot;&gt;Dragonffi 0.6.0&lt;/a&gt;
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://jekyllrb.com/" version="4.1.1">Jekyll</generator><link href="https://aguinet.github.io//feed.xml" rel="self" type="application/atom+xml" /><link href="https://aguinet.github.io//" rel="alternate" type="text/html" hreflang="en" /><updated>2020-11-24T08:48:39+01:00</updated><id>https://aguinet.github.io//feed.xml</id><subtitle></subtitle><entry><title type="html">Donjon CTF SSSGX write-up: linear functions strike back</title><link href="https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx.html" rel="alternate" type="text/html" title="Donjon CTF SSSGX write-up: linear functions strike back" /><published>2020-11-22T00:00:00+01:00</published><updated>2020-11-22T00:00:00+01:00</updated><id>https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx</id><content type="html" xml:base="https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx.html">&lt;p&gt;This writeup presents a solution to the SSSGX Wallet stage of the &lt;a href=&quot;https://donjon-ctf.io/&quot;&gt;2020 Ledger
+Donjon’s CTF&lt;/a&gt;. It showcases a solution using a kind of generic
+method to exploit the issues that we are facing in this challenge, which
+can basically be reduced to solving a linear system in the vector space
+\(\{0,1\}^N\).&lt;/p&gt;
+
+&lt;p&gt;We will first &lt;a href=&quot;#introduction&quot;&gt;describe the challenge&lt;/a&gt;, then &lt;a href=&quot;#figuring-out-the-problem-to-solve&quot;&gt;the generic
+problem to solve&lt;/a&gt;, the &lt;a href=&quot;#figuring-out-the-vulnerability&quot;&gt;vulnerability to
+exploit&lt;/a&gt;, and finally &lt;a href=&quot;#exploiting-the-vulnerability-and-solving-the-challenge&quot;&gt;how to solve the
+challenge&lt;/a&gt; using
+&lt;a href=&quot;https://www.sagemath.org/&quot;&gt;Sage&lt;/a&gt; and &lt;a href=&quot;https://github.com/aguinet/dragonffi/&quot;&gt;DragonFFI&lt;/a&gt;!&lt;/p&gt;
+
+&lt;p&gt;The full code of this solution is &lt;a href=&quot;https://github.com/aguinet/donjonctf_sssgx&quot;&gt;available
+on Github&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2020-11-22-donjon-ctf-sssgx/sssgx_chall.png&quot; alt=&quot;&quot; class=&quot;center-image&quot; /&gt;&lt;/p&gt;
+
+&lt;h1 id=&quot;introduction&quot;&gt;Introduction&lt;/h1&gt;
+
+&lt;p&gt;For this challenge, we had access to a web-browser based wallet service
+(and its source code), on which we can create or restore accounts, and
+digitally sign messages with that account.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2020-11-22-donjon-ctf-sssgx/sssgx_create.png&quot; alt=&quot;Create Wallet&quot; class=&quot;center-image&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;This system also has the particularity of allowing the user to split the secret
+associated to his account in three “shares”, and to send two of them
+to two other persons, so that he’ll be able to recover his account if the three
+shares are put back together.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2020-11-22-donjon-ctf-sssgx/sssgx_restore.png&quot; alt=&quot;Restore Wallet&quot; class=&quot;center-image&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;In the challenge’s data, we are also given a copy of the local storage SQLite
+database of a browser that has been using this service. Indeed, once
+an account has been created on this platform, we can see that a “backup” local
+storage entry appears, with information linked to our account.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2020-11-22-donjon-ctf-sssgx/sssgx_backup_local_storage.png&quot; alt=&quot;Local storage&quot; class=&quot;center-image&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;The goal of the challenge is to retrieve the secret associated to that account.&lt;/p&gt;
+
+&lt;p&gt;As we have the source code, let’s take a look at it to understand what are
+these data, especially the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;backup&lt;/code&gt; field.&lt;/p&gt;
+
+&lt;h2 id=&quot;service-architecture&quot;&gt;Service architecture&lt;/h2&gt;
+
+&lt;p&gt;The service has actually a quite interesting &lt;a href=&quot;https://en.wikipedia.org/wiki/Software_Guard_Extensions&quot;&gt;Intel SGX&lt;/a&gt;-based
+architecture. What happens when an account is created is:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;a random 32-bytes secret \(S\) is generated in an SGX container. It is later used
+to sign messages using &lt;a href=&quot;https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm&quot;&gt;ECDSA&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;this secret is encrypted and authenticated in the very same container, alongside with
+the email information and the users’ PIN&lt;/li&gt;
+  &lt;li&gt;the result is sent back to the user that stores it in its browser local
+storage&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;When a user asks to sign a message, he has to enter its PIN. The complete
+request, containing the message, the PIN and the encrypted backup, is forwarded
+to the SGX container, which:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;decrypts the backup&lt;/li&gt;
+  &lt;li&gt;verifies the users’ PIN&lt;/li&gt;
+  &lt;li&gt;signs the message&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The signature is then sent back to the user.&lt;/p&gt;
+
+&lt;p&gt;If the user wants to send its shares to two of his friends, he just send his
+encrypted backup alongside with the two recipients’ mail address. This is the
+only API we can use with the backup that have been provided in the challenge,
+because the PIN isn’t requested and checked here.&lt;/p&gt;
+
+&lt;h1 id=&quot;figuring-out-the-problem-to-solve&quot;&gt;Figuring out the problem to solve&lt;/h1&gt;
+
+&lt;h2 id=&quot;what-data-do-we-have&quot;&gt;What data do we have&lt;/h2&gt;
+
+&lt;p&gt;It looks like solving this challenge would imply using the two shares that the
+server is willing to send us. Using the SQLite database we are provided with,
+we inject it into the browser of our choice, and ask the interface to send the
+shares to two email addresses we control:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2020-11-22-donjon-ctf-sssgx/sssgx_share.png&quot; alt=&quot;Send shares&quot; class=&quot;center-image&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;For the sake of history, the two resulting shares are available in the
+&lt;a href=&quot;https://github.com/aguinet/donjonctf_sssgx/blob/main/shares.txt&quot;&gt;repository of the
+solution&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;Now, let’s go back to the code and look at the “data flow” between our victim’s
+secret (what we are looking for) and the two shares we have. Given the name of
+the challenge, we are expecting to find some sharing scheme, like the &lt;a href=&quot;https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing&quot;&gt;Shamir’s
+Secret Sharing (SSS)&lt;/a&gt; one.&lt;/p&gt;
+
+&lt;h2 id=&quot;what-function-computes-them&quot;&gt;What function computes them&lt;/h2&gt;
+
+&lt;p&gt;We are interested in isolating the function that computes these two shares
+from the original secret.&lt;/p&gt;
+
+&lt;p&gt;From the code, in the file &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/wallet/libwallet/Enclave/Enclave.cpp&lt;/code&gt;, the
+function &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;share_user_seed&lt;/code&gt; looks interesting. It is indeed declared as a
+“public endpoint” of the enclave in
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/wallet/libwallet/Enclave/Enclave.edl&lt;/code&gt;, is wrapped in the function
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;wallet_share_seed&lt;/code&gt;, which itself is called by the Node.js server by the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;/share&lt;/code&gt;
+public REST API, all through of bunch of bindings we don’t describe here. The
+shares we got by email have thus been generated by the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;share_user_seed&lt;/code&gt;
+function, which looks like this (stripped down for readability):&lt;/p&gt;
+
+&lt;div class=&quot;language-cpp highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;n&quot;&gt;sgx_status_t&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;share_user_seed&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;share_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;contact_shares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;blob&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;uint32_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;blob_size&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;char&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;password&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;char&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;email1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;char&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;email2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;sgx_status_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;sss_Share&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;shares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;user_data_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;user_data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;entropy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;16&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;
+
+    &lt;span class=&quot;c1&quot;&gt;// No need to check the password, as one share will always be sent to the owner email address.&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;// We can assume access to the mail account is enough.&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;password&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+
+    &lt;span class=&quot;n&quot;&gt;unseal_user_data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;blob&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;blob_size&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;user_data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;sgx_read_rand&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;entropy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sizeof&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;entropy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;randominit&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;entropy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sizeof&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;entropy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
+
+    &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;msg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;sss_MLEN&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;memcpy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;msg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;user_data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sizeof&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;user_data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;sss_create_shares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;shares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;msg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt; 
+
+    &lt;span class=&quot;p&quot;&gt;[...]&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;int&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;++&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;memcpy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;contact_shares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;shares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;sss_SHARE_LEN&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;   
+    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;SGX_SUCCESS&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;It is indeed using &lt;a href=&quot;https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing&quot;&gt;Shamir’s Secret Sharing (SSS)&lt;/a&gt; protocol, splitting
+the secret in three shares and requiring the three of them to recover the
+secret.  The core function that creates these shares is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sss_create_shares&lt;/code&gt;,
+which is from the &lt;a href=&quot;https://github.com/dsprenkels/sss&quot;&gt;sss library&lt;/a&gt; by &lt;a href=&quot;https://dsprenkels.com/&quot;&gt;Daan
+Sprenkels&lt;/a&gt;.  This function takes as input the user’s
+secret key (which we are interested in), and returns three shares. Given these
+three shares, it is possible to do the inverse operation, &lt;em&gt;i.e.&lt;/em&gt; recompute the
+original user’s secret. As a reminder, we only have two of these shares.&lt;/p&gt;
+
+&lt;h2 id=&quot;shamirs-secret-sharing-and-its-implementation-in-sss&quot;&gt;Shamir’s Secret Sharing, and its implementation in &lt;a href=&quot;https://github.com/dsprenkels/sss&quot;&gt;sss&lt;/a&gt;&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing&quot;&gt;Shamir’s Secret Sharing&lt;/a&gt; scheme is a &lt;a href=&quot;https://en.wikipedia.org/wiki/Secret_sharing&quot;&gt;secret
+sharing&lt;/a&gt; scheme. The goal is to
+share a secret between \(n\) participants, and require at least \(k\)
+participants to retrieve it.&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing&quot;&gt;SSS&lt;/a&gt; implements this using polynomials. This is best described by the
+&lt;a href=&quot;https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing#Shamir's_secret_sharing_scheme&quot;&gt;Wikipedia’s
+article&lt;/a&gt;
+on the matter:&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;The essential idea of Adi Shamir’s threshold scheme is that 2 points are
+sufficient to define a line, 3 points are sufficient to define a parabola, 4
+points to define a cubic curve and so forth. That is, it takes \(k\) points to
+define a polynomial of degree \(k-1\).&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;The degree of the polynomial \(P\) will thus be \(k-1\). We embed the secret into
+this polynomial, for instance by setting its constant coefficient \(P(0)\) to the
+secret, and the rest to random values. We then evaluate this polynomial in
+\(N\) points, and share a different \((i,P(i))\) pair with each of the \(K\)
+participants. If we know \(K\) shares, we can retrieve the full polynomial
+using interpolation, and hence retrieve the secret.&lt;/p&gt;
+
+&lt;p&gt;In the case of our challenge, for one secret, the &lt;a href=&quot;https://github.com/dsprenkels/sss&quot;&gt;sss&lt;/a&gt; library uses
+32 polynomials with coefficients in the \(GF(2^8)\) space (which are themselves
+polynomials). According to the &lt;a href=&quot;https://github.com/dsprenkels/sss/blob/v0.1.0/hazmat.c#L93&quot;&gt;source code of the
+library&lt;/a&gt;,
+multiplication in \(GF(2^8)\) is reduced by this polynom: \(x^8 + x^4 + x^3 + x + 1\).
+This means that, for this challenge, shares are polynomials, as
+well as coefficients of the Shamir polynomial.&lt;/p&gt;
+
+&lt;p&gt;Moreover, for one secret, it uses 32 Shamir polynomials, because one Shamir
+polynomial with coefficients in \(GF(2^8)\) can only &lt;em&gt;store&lt;/em&gt; a secret of one byte
+(aka 8 bits). Indeed, as we will &lt;a href=&quot;#understanding-the-share-format&quot;&gt;see below&lt;/a&gt;,
+the library encrypts the secret with a random 32-byte encryption key (which then
+is the actual shared secret), hence the 32 polynomials.&lt;/p&gt;
+
+&lt;h3 id=&quot;bitslicing&quot;&gt;Bitslicing&lt;/h3&gt;
+
+&lt;p&gt;In order to make computations with these 32 polynomials efficient, the library
+uses a technique called &lt;em&gt;bitslicing&lt;/em&gt;. Instead of working with 32x8-bit integers
+(each integer representing a polynomial over \(GF(2^8)\), it works with
+8x32-bit integers. Each 32-bit integers representing the same coefficient of
+the 32 polynomials. Thus, we can do 32 polynomials computation at once.&lt;/p&gt;
+
+&lt;p&gt;This bitslicing transformation can be seen as a transposition of the original
+32x8 bit matrix, which is a linear operation in \(GF(2)^N\) (this is important
+for what’s next).&lt;/p&gt;
+
+&lt;h2 id=&quot;understanding-the-share-format&quot;&gt;Understanding the share format&lt;/h2&gt;
+
+&lt;p&gt;The &lt;a href=&quot;https://github.com/dsprenkels/sss/#technical-details&quot;&gt;sss library’s
+README&lt;/a&gt; explains a little
+bit what happens in the
+&lt;a href=&quot;https://github.com/dsprenkels/sss/blob/v0.1.0/sss.c#L61&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sss_create_shares&lt;/code&gt;&lt;/a&gt;
+function. Basically, a random 32-bytes key \(K\) is computed, then used to encrypt
+and authenticate the original secret \(S\) with &lt;a href=&quot;https://github.com/jedisct1/libsodium&quot;&gt;libsodium&lt;/a&gt;’s
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;crypto_secretbox&lt;/code&gt; function. The rational behind this is explained in the
+aforementioned README.&lt;/p&gt;
+
+&lt;p&gt;The &lt;a href=&quot;https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing&quot;&gt;SSS&lt;/a&gt; algorithm is then applied on the key \(K\), creating in
+our case three shares. The share values can then be used in the
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sss_combine_shares&lt;/code&gt;, which recovers the key \(K\), and uses
+&lt;a href=&quot;https://github.com/jedisct1/libsodium&quot;&gt;libsodium&lt;/a&gt;’s &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;crypto_secretbox_open&lt;/code&gt; to verify the integrity of the
+encrypted data and recover the original secret \(S\).&lt;/p&gt;
+
+&lt;p&gt;Regarding the share format, analyzing the library’s source code teaches us
+that the result of the &lt;a href=&quot;https://en.wikipedia.org/wiki/Authenticated_encryption#Authenticated_encryption_with_associated_data_(AEAD)&quot;&gt;Authenticated Encryption with Associated Data
+(AEAD)&lt;/a&gt;
+of \(S\) with \(K\) is concatenated to every share. Moreover, each share, at
+its beginning, have its share index encoded in one byte.&lt;/p&gt;
+
+&lt;p&gt;So, the final format of a share is:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;First byte: share index (from 1 to 3 in our case)&lt;/li&gt;
+  &lt;li&gt;Next 32 bytes: the actual share value (representing the 32 polynomials)&lt;/li&gt;
+  &lt;li&gt;Remaining bytes: basically the output of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;crypto_secretbox&lt;/code&gt;, that encrypts
+&amp;amp; authenticate our original secret \(S\) with the random key \(K\)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;What we got from the server is a Base64 encoding of this. If we indeed take a
+closer look at the two shares we received, we can see that the last bytes are
+the same.&lt;/p&gt;
+
+&lt;h2 id=&quot;the-problem-to-solve&quot;&gt;The problem to solve&lt;/h2&gt;
+
+&lt;p&gt;With all these information, we can say that the problem to solve can be
+summarized as such:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;given two known shares \((KS_1,KS_2)\) (among the
+original three shares \((KS_0,KS_1,KS_2)\)) of a secret (in our case the
+encryption key \(K\))&lt;/li&gt;
+  &lt;li&gt;and given the function \(F(K) = (KS_0,KS_1,KS_2)\),&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;can we retrieve \(K\) by only having \((KS_1,KS_2)\)?&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;Note: Once we got \(K\), we just need to use &lt;a href=&quot;https://github.com/jedisct1/libsodium&quot;&gt;libsodium&lt;/a&gt; to retrieve the
+original secret \(S\).&lt;/em&gt;&lt;/p&gt;
+
+&lt;h2 id=&quot;bibliography&quot;&gt;Bibliography&lt;/h2&gt;
+
+&lt;p&gt;This challenge has a very strong resemblance to this &lt;a href=&quot;https://donjon.ledger.com/Stealing-all-HTC-Exodus-users/&quot;&gt;recent blog post&lt;/a&gt;,
+and given that Jean-Baptiste Bédrune is now head of security of the Ledger’s
+Donjon, this might not be just a coincidence :)&lt;/p&gt;
+
+&lt;h1 id=&quot;figuring-out-the-vulnerability&quot;&gt;Figuring out the vulnerability&lt;/h1&gt;
+
+&lt;p&gt;In theory, if &lt;a href=&quot;sss_wiki&quot;&gt;SSS&lt;/a&gt; is properly implemented, that it isn’t possible to
+recover this secret with only two shares out of the three. So there must be
+some kind of vulnerability in the implementation of this scheme.&lt;/p&gt;
+
+&lt;p&gt;We can notice that a customized version of the &lt;a href=&quot;https://github.com/dsprenkels/sss&quot;&gt;sss&lt;/a&gt; library
+has been used. If we look at the differences, we can see that the major ones
+are in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;randombytes.cpp&lt;/code&gt; file. Here is part of its implementation:&lt;/p&gt;
+
+&lt;div class=&quot;language-c highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;cp&quot;&gt;#define RANDOM_POOL_SIZE 128
+&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;static&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;random_pool&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;RANDOM_POOL_SIZE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;
+
+&lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;randominit&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;entropy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;size_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;size&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;sgx_sha256_hash_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;digest&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  
+  &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;p&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;random_pool&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;sgx_sha256_msg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;((&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;entropy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;uint32_t&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;size&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;digest&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+  &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;int&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;4&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;++&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;memcpy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;p&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;digest&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;SGX_SHA256_HASH_SIZE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;sgx_sha256_msg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;p&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;SGX_SHA256_HASH_SIZE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;digest&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;p&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;SGX_SHA256_HASH_SIZE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;kt&quot;&gt;int&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;randombytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;size_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;  
+
+  &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;data&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;while&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;RANDOM_POOL_SIZE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;memcpy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;random_pool&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;RANDOM_POOL_SIZE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;data&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;RANDOM_POOL_SIZE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;RANDOM_POOL_SIZE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;  
+  &lt;span class=&quot;n&quot;&gt;memcpy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;random_pool&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt; 
+  &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;One issue here is that the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;randombytes&lt;/code&gt; function will always return the
+same bytes (looping over a buffer of 128 bytes). This means that, if we call
+twice the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;randombytes&lt;/code&gt; function to get, say, 32 bytes, we get twice the
+same random 32 bytes. Let’s see where this is used and how we can exploit this.&lt;/p&gt;
+
+&lt;h2 id=&quot;constant-randomness-usage&quot;&gt;Constant randomness usage&lt;/h2&gt;
+
+&lt;h3 id=&quot;usage-1&quot;&gt;Usage 1&lt;/h3&gt;
+
+&lt;p&gt;The first place where &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;randombytes&lt;/code&gt; is used is
+&lt;a href=&quot;https://github.com/dsprenkels/sss/blob/v0.1.0/sss.c#L73&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sss_create_keyshares&lt;/code&gt;&lt;/a&gt;.
+The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;randombytes&lt;/code&gt; function is thus used
+to compute the 32-bytes key that encrypts the data to share (see above).&lt;/p&gt;
+
+&lt;div class=&quot;language-c highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;sss_create_shares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;sss_Share&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;unsigned&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;char&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+                       &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;k&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;// ...&lt;/span&gt;
+  &lt;span class=&quot;kt&quot;&gt;unsigned&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;char&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;32&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;
+  &lt;span class=&quot;cm&quot;&gt;/* Generate a random encryption key */&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;randombytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sizeof&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
+
+  &lt;span class=&quot;cm&quot;&gt;/* AEAD encrypt the data with the key */&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;memcpy&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;m&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;crypto_secretbox_ZEROBYTES&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;sss_MLEN&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;crypto_secretbox&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;c&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;m&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;mlen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;nonce&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+  &lt;span class=&quot;cm&quot;&gt;/* Generate KeyShares */&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;sss_create_keyshares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;keyshares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;k&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;usage-2&quot;&gt;Usage 2&lt;/h3&gt;
+
+&lt;p&gt;The next place where &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;randombytes&lt;/code&gt; is used is in
+&lt;a href=&quot;https://github.com/dsprenkels/sss/blob/v0.1.0/hazmat.c#L298&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sss_create_keyshares&lt;/code&gt;&lt;/a&gt;
+in order to generate the various set of polynomials involved:&lt;/p&gt;
+
+&lt;div class=&quot;language-c highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt;
+&lt;span class=&quot;nf&quot;&gt;sss_create_keyshares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;sss_Keyshare&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+                      &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;32&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt;
+                      &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+                      &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;k&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;// ...&lt;/span&gt;
+  &lt;span class=&quot;kt&quot;&gt;uint32_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;poly0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;poly&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;k&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;][&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;
+
+  &lt;span class=&quot;cm&quot;&gt;/* Put the secret in the bottom part of the polynomial */&lt;/span&gt;
+	&lt;span class=&quot;n&quot;&gt;bitslice&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;poly0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+  &lt;span class=&quot;cm&quot;&gt;/* Generate the other terms of the polynomial */&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;randombytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;((&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;poly&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sizeof&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;poly&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;//...&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;In our case, \(k\) (number of shares needed to retrieve the secret) is three,
+as long as \(n\) (number of total shares).  We thus have 3 sets of 32
+polynomials with coefficients in \(GF(2^8)\):&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;one \(P_0\) set, which is the key \(K\)&lt;/li&gt;
+  &lt;li&gt;two other ones \((P_1,P_2)\), which are chosen randomly using &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;randombytes&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;With all these informations, let’s refine a little bit our problem to solve.&lt;/p&gt;
+
+&lt;h2 id=&quot;the-refined-problem-to-solve&quot;&gt;The refined problem to solve&lt;/h2&gt;
+
+&lt;p&gt;As the representation of a set of 32 polynomials is composed of 32 8-bit
+integers (which means 32 bytes), due to the vulnerability &lt;a href=&quot;#figuring-out-the-vulnerability&quot;&gt;explained
+above&lt;/a&gt;, this means that the first set of
+polynomials’ coefficients are directly tied to the 32-bytes random key \(K\).&lt;/p&gt;
+
+&lt;p&gt;This means that, from the description of the problem we gave above, we can
+refine the problem as such:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;with \(F\) a function that, given \((K,P_2)\), generates \((KS_1,KS_2)\), the problem is, knowing \((KS_1,KS_2)\), to retrieve \((K,P_2)\).&lt;/li&gt;
+  &lt;li&gt;stated differently, we want to solve the equation \(F(K,P_2) = (KS_1,KS_2)\) (knowing \((KS_1,KS_2)\)).&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;We can also note that \((K,P_2)\) is \(32+32=64\) bytes, as well as
+\((KS_1,KS_2)\). Let’s now take a closer look at \(F\).&lt;/p&gt;
+
+&lt;h2 id=&quot;analyzing-f&quot;&gt;Analyzing &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;F&lt;/code&gt;&lt;/h2&gt;
+
+&lt;p&gt;We can split the code of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sss_create_keyshares&lt;/code&gt; function, so that our function \(F\)
+becomes more explicit:&lt;/p&gt;
+
+&lt;div class=&quot;language-c highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;extern&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;C&quot;&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt;
+&lt;span class=&quot;nf&quot;&gt;sss_create_keyshares_impl&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;sss_Keyshare&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;32&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;uint32_t&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;poly&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;k&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;share_idx&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;coeff_idx&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;unbitsliced_x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;kt&quot;&gt;uint32_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;poly0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;y&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;xpow&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;tmp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;
+
+  &lt;span class=&quot;cm&quot;&gt;/* Put the secret in the bottom part of the polynomial */&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;bitslice&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;poly0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+  &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;share_idx&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;share_idx&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;share_idx&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;++&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;cm&quot;&gt;/* x value is in 1..n */&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;unbitsliced_x&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;share_idx&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;share_idx&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;][&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;unbitsliced_x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;bitslice_setall&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;unbitsliced_x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+
+    &lt;span class=&quot;cm&quot;&gt;/* Calculate y */&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;memset&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;y&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sizeof&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;y&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;memset&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;xpow&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sizeof&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;xpow&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;xpow&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;~&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; 
+    &lt;span class=&quot;n&quot;&gt;gf256_add&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;y&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;poly0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;coeff_idx&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;coeff_idx&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;k&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;coeff_idx&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;++&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;gf256_mul&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;xpow&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;xpow&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt; 
+      &lt;span class=&quot;n&quot;&gt;gf256_mul&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;tmp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;xpow&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;poly&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;coeff_idx&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]);&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;gf256_add&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;y&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;tmp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;   
+    &lt;span class=&quot;n&quot;&gt;unbitslice&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;share_idx&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;][&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;y&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt; 
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt;
+&lt;span class=&quot;nf&quot;&gt;sss_create_keyshares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;sss_Keyshare&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+                      &lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;32&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt;
+                      &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+                      &lt;span class=&quot;kt&quot;&gt;uint8_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;k&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+
+  &lt;span class=&quot;kt&quot;&gt;uint32_t&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;poly&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;k&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;][&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;
+  &lt;span class=&quot;cm&quot;&gt;/* Generate the other terms of the polynomial */&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;randombytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;((&lt;/span&gt;&lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;poly&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sizeof&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;poly&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
+
+  &lt;span class=&quot;n&quot;&gt;sss_create_keyshares_impl&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;poly&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;][&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;k&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt; 
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;In this code, \(F\) is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sss_create_keyshares_impl&lt;/code&gt;, called with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;n=3&lt;/code&gt; and
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;k=3&lt;/code&gt;. Moreover, due to the &lt;a href=&quot;#figuring-out-the-vulnerability&quot;&gt;previously exposed
+issue&lt;/a&gt; the 32 bytes of key are the sames as
+the first 32 bytes of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;polys&lt;/code&gt;. This function basically implements the
+&lt;a href=&quot;https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing&quot;&gt;SSS&lt;/a&gt; protocol. As &lt;a href=&quot;#shamirs-secret-sharing-and-its-implementation-in-sss&quot;&gt;seen
+before&lt;/a&gt;, it’s using sets
+of 32 polynomials with coefficients in the \(GF(2^8)\) space.&lt;/p&gt;
+
+&lt;p&gt;As discussed in &lt;a href=&quot;#annex-a-gf28-versus-gf2n&quot;&gt;Annex A&lt;/a&gt;, multiplications by
+constant polynomials and additions in \(GF(2^8)\) can also be represented as
+linear functions in the \(GF(2)^8\) space. This can help us tell that the
+function \(F\) is linear in the \(GF(2)^{512}\) space.&lt;/p&gt;
+
+&lt;p&gt;Indeed, let’s take a closer look at the computation of one byte of the \(i\)-th
+share. This is basically evaluating a polynomial \(A\) of degree \(k-1=2\) (with coefficients
+\(a_i\) in \(GF(2^8)\)) in \(i\). With \(C_i\) the polynomial representation of
+\(i\) in \(GF(2^8)\) (e.g. here with \(i=3 \implies C_i = 1+x\)):&lt;/p&gt;
+
+\[\begin{align*}
+A(C_i) &amp;amp;= a_0 + a_1*C_i + a_2*C_i^2 \\
+ &amp;amp;= a_0 + a_1*(1+x) + a_2*(1+x)^2 \\
+ &amp;amp;= a_0 + a_1*(1+x) + a_2*(1+x^2) \\
+ &amp;amp;= (a_0+a_1+a_2) + a_1*x + a_2*x^2
+\end{align*}\]
+
+&lt;p&gt;With \(a_i = \sum_{j=0}^{7} (b_{i,j}*x^j)\), we end up with a polynomial in
+\(GF(2^8)\), whose coefficients are linear combinations of \((b_{ij})\). So,
+for this specific share, we can rewrite this operation in \(GF(2)^{8*3}\) as:&lt;/p&gt;
+
+\[M_i\times\begin{pmatrix}b_{0,0} \\ b_{0,1} \\ \dots \\ b_{0,7} \\ b_{1,0} \\ \dots \\ b_{2,7} \end{pmatrix}\]
+
+&lt;p&gt;with \(M_i\) a \(24 \times 8\) bit matrix.&lt;/p&gt;
+
+&lt;p&gt;Moreover, as &lt;a href=&quot;#bitslicing&quot;&gt;said above&lt;/a&gt;, the bitslicing part is &lt;em&gt;just&lt;/em&gt; an
+optimisation, and can also be seen as a linear function. We can notice that the
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sss_create_keyshares_impl&lt;/code&gt; takes “unbitsliced” inputs, and returns
+“unbitsliced” outputs. So, in the end, we don’t really have to take care about this
+internal representation and optimisation.&lt;/p&gt;
+
+&lt;p&gt;Finally, we can say that our problem basically boils down to solving
+a linear system in \(GF(2)^{512}\)! What we miss is the representation of \(F\)
+in that space.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;Note: we don’t necessary need to precisely understand all these things to
+solve the challenge. We can make the assumption that \(F\) will be linear in
+the \(GF(2)^{512}\) vector space, and quickly try if that’s the case (see the
+&lt;a href=&quot;https://github.com/aguinet/donjonctf_sssgx/blob/main/attack.py#L50&quot;&gt;provided source
+code&lt;/a&gt; for
+an example).&lt;/em&gt;&lt;/p&gt;
+
+&lt;h1 id=&quot;exploiting-the-vulnerability-and-solving-the-challenge&quot;&gt;Exploiting the vulnerability (and solving the challenge)&lt;/h1&gt;
+
+&lt;p&gt;Let’s recap what we have to do:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;we know the key shares \((KS_1,KS_2)\), which are both 32-bytes long&lt;/li&gt;
+  &lt;li&gt;we have the function \(F\), which can be represented as a linear function
+in the \(GF(2)^{512}\) vector space. We have the code of that function, so we
+can evaluate it&lt;/li&gt;
+  &lt;li&gt;we have to retrieve the original secret by solving the equation \(F(K,P_2) == (KS_1,KS_2)\)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;As \(F\) is a linear function in \(GF(2)^{512}\), it can be represented by a
+512 square bit matrix \(M\). Remember, \(GF(2)\) basically means \(\{0,1\}\) (it’s
+a bit), and the size of \((K,P_2)\) and \((KS_1,KS_2)\) is 64 &lt;strong&gt;bytes&lt;/strong&gt;.&lt;/p&gt;
+
+&lt;p&gt;So, in the end, we want to solve this equation:&lt;/p&gt;
+
+\[M\times\begin{pmatrix}K \\ P_2\end{pmatrix} = \begin{pmatrix}KS_1 \\ KS_2\end{pmatrix}\]
+
+&lt;p&gt;Note that \(M\) might not be invertible, so it might not be “as simple”
+as writing the inverse of \(F\) and compute it.&lt;/p&gt;
+
+&lt;h2 id=&quot;computing-m-using-dragonffi&quot;&gt;Computing \(M\) using DragonFFI&lt;/h2&gt;
+
+&lt;p&gt;One thing that remains is to compute the matrix \(M\). There are basically two ways to do this:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;compute the matrix &lt;em&gt;by hand&lt;/em&gt;, by composing all the various operations that
+are happening in \(F\). This is a bit time consuming and potentially
+error-prone.&lt;/li&gt;
+  &lt;li&gt;evaluate \(F\) 512 times to compute the values of the column of \(M\).
+Indeed, if, for every column index \(i\) of \(M\), we compute \(F(V)\), with
+V a bit vector with only the \(i\)-th index at 1 (and the others at zero), then
+we directly get the vector of the column \(i\) of \(M\).&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Let’s go for the second option, and do that using &lt;a href=&quot;dffi&quot;&gt;DragonFFI&lt;/a&gt; to directly
+call &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sss_create_keyshares_impl&lt;/code&gt; from Python:&lt;/p&gt;
+
+&lt;div class=&quot;language-python highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;pydffi&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;FFI&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;pydffi&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;FFI&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;CU&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;FFI&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;cdef&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;'''
+#include &amp;lt;stdint.h&amp;gt;
+void sss_create_keyshares_impl(uint8_t *out,
+  const uint8_t* key,
+  const uint8_t* poly, // was uint32_t*
+  uint8_t n,
+  uint8_t k);
+'''&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;polys_to_keyshares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;polys&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;assert&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;polys&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;LEN_POLYS&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;# This is due to the random generator reusing the same data (this is the vuln we are exploiting).
+&lt;/span&gt;    &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;polys&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[:&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;LEN_KEY&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;out&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bytearray&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;([&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;LEN_KEYSHARES&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;CU&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;funcs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;sss_create_keyshares_impl&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;polys&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;NSHARES&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;NSHARES&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;ret&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[:&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;LEN_KEYSHARE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;LEN_KEYSHARE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;LEN_KEYSHARE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;LEN_KEYSHARE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:])&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ret&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;kss_to_F_output&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;kss&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;kss&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;][&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;kss&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;][&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:]&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# This is our function F. It takes 64 bytes as input (two polynoms), and
+# returns the last two shares (2*32 bytes)
+&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;F&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;in_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;kss&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;polys_to_keyshares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;in_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;kss_to_F_output&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;kss&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# We work with vector of bits, so we choose a way to transform a list of bytes
+# into a list of bits and vice versa. Any representation would work, as long as
+# bytes2bits is the inverse of bits2bytes. Implementation is in the provided
+# source code.
+&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;bits2bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;v&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;# ...
+&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;bytes2bits&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;v&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;# ...
+&lt;/span&gt;
+&lt;span class=&quot;kn&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;sage.all&lt;/span&gt; &lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Integers&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Matrix&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;vector&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;GF2&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Integers&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;computeFMatrix&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;F&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;input_nbits&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;ret_cols&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[]&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;bin_&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;range&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;input_nbits&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;in_&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;NBITS&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;in_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;bin_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;in_&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;bits2bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;in_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;out&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;F&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;in_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;out&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;bytes2bits&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;ret_cols&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;append&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Matrix&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GF2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ret_cols&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;transpose&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;NBITS&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;64&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;M&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;computeFMatrix&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;F&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;NBITS&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;solving-the-problem-with-sage&quot;&gt;Solving the problem with sage&lt;/h2&gt;
+
+&lt;p&gt;Now that we got the matrix, it’s a matter of asking &lt;a href=&quot;https://www.sagemath.org/&quot;&gt;Sage&lt;/a&gt; to solve the
+problem for us.&lt;/p&gt;
+
+&lt;p&gt;The first thing we can verify is the size of the kernel of \(M\), that is the
+number of vector \(X\) for which \(M \times X == 0\). This will basically gives us the
+number of possible solutions to the problem:&lt;/p&gt;
+
+&lt;div class=&quot;language-python highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;print&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;M&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;kernel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;())&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;which gives:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;Vector space of degree 512 and dimension 2 over Ring of integers modulo 2
+Basis matrix:
+2 x 512 dense matrix over Ring of integers modulo 2
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;As the dimension of the result vector space is \(2\), we will have \(2^2 = 4\)
+potential solutions, which is fine to bruteforce :)&lt;/p&gt;
+
+&lt;p&gt;Now, let’s ask &lt;a href=&quot;https://www.sagemath.org/&quot;&gt;Sage&lt;/a&gt; to finally solve this:&lt;/p&gt;
+
+&lt;div class=&quot;language-python highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c1&quot;&gt;# Get all possible values of X in M*X = C thanks to Sage
+&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;allsols&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;M&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;C&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;S0&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;M&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;solve_right&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;vector&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;GF2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;bytes2bits&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;C&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)))&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;S&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;M&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;right_kernel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;():&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;S&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;S0&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# We extract the two shares from the mails we received
+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Fout&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;shares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;shares&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;keys&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[]&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;S&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;allsols&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;M&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Fout&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;S&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;int&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;v&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;v&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;S&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;# The solution will give us the encryption K and the polynom P2. We only
+&lt;/span&gt;    &lt;span class=&quot;c1&quot;&gt;# care about K here.
+&lt;/span&gt;    &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;bits2bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;S&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)[:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;32&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;[x] Possible key: %s&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;%&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;hex&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;())&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;keys&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;append&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;recovering-the-original-private-key&quot;&gt;Recovering the original private key&lt;/h2&gt;
+
+&lt;p&gt;Last part is to bruteforce these 4 keys and retrieve the original secret:&lt;/p&gt;
+
+&lt;div class=&quot;language-python highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;k&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;keys&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;out&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bytearray&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;([&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;64&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;# sss_decrypt is basically a wrapper around crypto_secretbox_open
+&lt;/span&gt;    &lt;span class=&quot;c1&quot;&gt;# added to the sss lib (source code in the provided repository)
+&lt;/span&gt;    &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;int&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;CU&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;funcs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;sss_decrypt&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;msg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;k&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;[+] Original secret found: %s&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;%&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;hex&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;())&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;sys&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;exit&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;To get the flag, we just had to give the found secret to a script that would
+verify that it is indeed the private key associated to the challenge’s wallet
+public key, and output the flag as &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;CTF{secret_in_hex}&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;  $ python ./check_flag.py 7d486b4cfdb1ede284802029e77ab292c35ab0d7b9d8c51a06b9222e5095e98c
+  CTF{7d486b4cfdb1ede284802029e77ab292c35ab0d7b9d8c51a06b9222e5095e98c}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And that’s it!&lt;/p&gt;
+
+&lt;h1 id=&quot;conclusion&quot;&gt;Conclusion&lt;/h1&gt;
+
+&lt;p&gt;That was a very nice challenge, which showcases how a &lt;em&gt;simple&lt;/em&gt; vulnerability in a random generator can break an apparently well designed system!&lt;/p&gt;
+
+&lt;h1 id=&quot;acknowledgment&quot;&gt;Acknowledgment&lt;/h1&gt;
+
+&lt;p&gt;Thanks to ssp for reviewing this writeup at 11PM, and the Donjon Ledger team for this CTF!&lt;/p&gt;
+
+&lt;h1 id=&quot;annex-a-gf2n-versus-gf2n&quot;&gt;Annex A: \(GF(2^N)\) versus \(GF(2)^N\)&lt;/h1&gt;
+
+&lt;p&gt;This annex explains why some operations in \(GF(2^N)\) can be represented as
+linear operation in the vector space \(GF(2)^N\) (which means a vector space using
+vectors of N bits).&lt;/p&gt;
+
+&lt;p&gt;\(GF(2^N)\) represents polynomials with coefficients in \(GF(2)\) (aka a bit).
+For instance, for \(N = 8\): \(P(x) = a_0 + a_1*x + a_2*x^2 + ... + a_7*x^7\).
+As each coefficient is a bit, we can also represent them as bits. Let’s call
+that representation &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;bits(P)&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Additions and multiplications are the usual ones. Addition of two polynomials A
+and B gives:&lt;/p&gt;
+
+\[A(x) + B(x) = (a_0+b_0) + (a_1+b_1)*x + ... + (a_7+b_7)*x^7\]
+
+&lt;p&gt;As coefficients are in \(GF(2)\), the addition can be seen as a simple XOR
+operation. This means that \(A+B\) == &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;poly(bits(A)^bits(B))&lt;/code&gt;. With \(BA\) and
+\(BV\) in \(GF(2)^8\), this also means that this polynomial addition can also
+be represented as a simple \(BA + BV\) vector addition in this vector space.&lt;/p&gt;
+
+&lt;p&gt;Multiplications in \(GF(2^N)\) are reduced to a fixed polynomial. Multiplying
+a unknown polynomial \(X\) with a known polynomial \(C\) can also be represented as
+a linear operation \(M_C \times X\) in \(GF(2)^N\) (with \(M_C\) an NxN bit matrix). Let’s
+just take an example to give the intuition behind this, with \(N = 4\), \(C = 1+x^2\),
+and \(x^4 + x + 1\) the reduction polynomial:&lt;/p&gt;
+
+\[\begin{align*}
+A(x)*C &amp;amp;= (a_0+a_1*x+a_2*x^2+a_3*x^3)*(1+x^2) \\
+ &amp;amp;= a_0 + a_1*x + (a_2 + a_0)*x^2 + (a_3 + a_1)*x^3 + a_2*x^4 + a_3*x^5
+\end{align*}\]
+
+&lt;p&gt;Reduced \(\pmod{x^4 + x + 1}\), we have&lt;/p&gt;
+
+\[\begin{align*}
+  x^4 &amp;amp;= x + 1   &amp;amp; \pmod{x^4 + x + 1}\\
+  x^5 &amp;amp;= x^2 + x &amp;amp; \pmod{x^4 + x + 1}
+\end{align*}\]
+
+&lt;p&gt;Which gives us:&lt;/p&gt;
+
+\[\begin{split}
+&amp;amp;A(x)*C \pmod{x^4 + x + 1} \\
+&amp;amp;   = a_0 + a_1*x + (a_2 + a_0)*x^2 + (a_3 + a_1)*x^3 + a_2*(x + 1) + a_3*(x^2 + x) \\
+&amp;amp;   = (a_0 + a_2) + (a_1 + a_2 + a_3)*x + (a_0 + a_2 + a_3)*x^2 + (a_1 + a_3)*x^3
+\end{split}\]
+
+&lt;p&gt;If we model \(A\) as a 4-bit vector in \(GF(2)^4\), we can represent \(A(x)*C\)
+as a linear operation \(M_C \times A\), with \(M_C\) a 4x4-bit matrix:&lt;/p&gt;
+
+\[\begin{pmatrix}
+1 &amp;amp; 0 &amp;amp; 1 &amp;amp; 0 \\
+0 &amp;amp; 1 &amp;amp; 1 &amp;amp; 1 \\
+1 &amp;amp; 0 &amp;amp; 1 &amp;amp; 1 \\
+0 &amp;amp; 1 &amp;amp; 0 &amp;amp; 1
+\end{pmatrix}
+\times
+\begin{pmatrix}
+a_0 \\
+a_1 \\
+a_2 \\
+a_3 \\
+\end{pmatrix}\]</content><author><name>adrien_guinet</name></author><category term="blog" /><summary type="html">This writeup presents a solution to the SSSGX Wallet stage of the 2020 Ledger Donjon’s CTF. It showcases a solution using a kind of generic method to exploit the issues that we are facing in this challenge, which can basically be reduced to solving a linear system in the vector space \(\{0,1\}^N\).</summary></entry><entry><title type="html">Lifting shared libraries &amp;amp; PIE binaries with DragonFFI (and LIEF)</title><link href="https://aguinet.github.io//blog/2020/10/05/dragonffi-library-lifting.html" rel="alternate" type="text/html" title="Lifting shared libraries &amp;amp; PIE binaries with DragonFFI (and LIEF)" /><published>2020-10-05T00:00:00+02:00</published><updated>2020-10-05T00:00:00+02:00</updated><id>https://aguinet.github.io//blog/2020/10/05/dragonffi-library-lifting</id><content type="html" xml:base="https://aguinet.github.io//blog/2020/10/05/dragonffi-library-lifting.html">&lt;p&gt;&lt;a href=&quot;https://github.com/aguinet/dragonffi/releases/tag/dffi-0.6.0&quot;&gt;Dragonffi 0.6.0&lt;/a&gt;
 comes with new APIs that can be leveraged to call arbitrary functions within a
 shared library (or position independent (aka PIE) binaries).&lt;/p&gt;
 
