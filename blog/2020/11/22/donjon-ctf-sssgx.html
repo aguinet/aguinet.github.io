@@ -741,7 +741,7 @@ V a bit vector with only the \(i\)-th index at 1 (and the others at zero), then
 we directly get the vector of the column \(i\) of \(M\).</li>
 </ul>
 
-<p>Let’s go for the second option, and do that using <a href="dffi">DragonFFI</a> to directly
+<p>Let’s go for the second option, and do that using <a href="https://github.com/aguinet/dragonffi/">DragonFFI</a> to directly
 call <code class="language-plaintext highlighter-rouge">sss_create_keyshares_impl</code> from Python:</p>
 
 <div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">pydffi</span>
