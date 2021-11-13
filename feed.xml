@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://jekyllrb.com/" version="4.1.1">Jekyll</generator><link href="https://aguinet.github.io//feed.xml" rel="self" type="application/atom+xml" /><link href="https://aguinet.github.io//" rel="alternate" type="text/html" hreflang="en" /><updated>2021-04-17T16:13:38+02:00</updated><id>https://aguinet.github.io//feed.xml</id><subtitle></subtitle><entry><title type="html">Donjon CTF SSSGX write-up: linear functions strike back</title><link href="https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx.html" rel="alternate" type="text/html" title="Donjon CTF SSSGX write-up: linear functions strike back" /><published>2020-11-22T00:00:00+01:00</published><updated>2020-11-22T00:00:00+01:00</updated><id>https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx</id><content type="html" xml:base="https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx.html">&lt;p&gt;This writeup presents a solution to the SSSGX Wallet stage of the &lt;a href=&quot;https://donjon-ctf.io/&quot;&gt;2020 Ledger
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://jekyllrb.com/" version="4.2.0">Jekyll</generator><link href="https://aguinet.github.io//feed.xml" rel="self" type="application/atom+xml" /><link href="https://aguinet.github.io//" rel="alternate" type="text/html" hreflang="en" /><updated>2021-11-13T10:42:29+01:00</updated><id>https://aguinet.github.io//feed.xml</id><subtitle></subtitle><entry><title type="html">Donjon CTF SSSGX write-up: linear functions strike back</title><link href="https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx.html" rel="alternate" type="text/html" title="Donjon CTF SSSGX write-up: linear functions strike back" /><published>2020-11-22T00:00:00+01:00</published><updated>2020-11-22T00:00:00+01:00</updated><id>https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx</id><content type="html" xml:base="https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx.html">&lt;p&gt;This writeup presents a solution to the SSSGX Wallet stage of the &lt;a href=&quot;https://donjon-ctf.io/&quot;&gt;2020 Ledger
 Donjon’s CTF&lt;/a&gt;. It showcases a solution using a kind of generic
 method to exploit the issues that we are facing in this challenge, which
 can basically be reduced to solving a linear system in the vector space
@@ -853,7 +853,7 @@ void decrypt(uint8_t* buf, const size_t len, uint8_t const key);
 
 &lt;span class=&quot;c1&quot;&gt;# Call the decrypt function
 &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mh&quot;&gt;0xAA&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bytearray&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;c&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;^&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;c&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;b&quot;Hello World!&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bytearray&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;c&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;^&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;c&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;sa&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Hello World!&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
 &lt;span class=&quot;n&quot;&gt;CU&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;funcs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;decrypt&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
 &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
 &lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
@@ -882,7 +882,7 @@ typedef void(decrypt_functy)(uint8_t*, const size_t, uint8_t);
 
 &lt;span class=&quot;c1&quot;&gt;# Call the decrypt function
 &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mh&quot;&gt;0xAA&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bytearray&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;c&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;^&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;c&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;b&quot;Hello World!&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bytearray&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;c&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;^&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;key&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;c&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;sa&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Hello World!&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
 &lt;span class=&quot;n&quot;&gt;decrypt&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;key&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
 &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
 &lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
@@ -975,7 +975,7 @@ if it has admin rights, enters its own data on the first sectors of the disc
 system uses UEFI (with a GPT partition scheme), the malware skips this step.
 The machine then is restarted and the NotPetya bootloader executed: a Salsa20
 key and a nonce are generated. These secrets are used to encrypt the Master
-File Table (MFT) &lt;sup id=&quot;fnref:1&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:1&quot; class=&quot;footnote&quot;&gt;1&lt;/a&gt;&lt;/sup&gt; of NTFS file system. This data structure contains the metadata
+File Table (MFT) &lt;sup id=&quot;fnref:1&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:1&quot; class=&quot;footnote&quot; rel=&quot;footnote&quot;&gt;1&lt;/a&gt;&lt;/sup&gt; of NTFS file system. This data structure contains the metadata
 needed to find the data associated with each file. This operation looks like a
 classical “chkdsk”. Once this operation is done, the machine restarts one last
 time and then displays the ransom message.&lt;/p&gt;
@@ -1003,11 +1003,11 @@ QEMU (or any other virtualization/emulation solution) by writing the bootloader
 on a virtual hard disk, but it makes it difficult to instrument the bootloader
 code.  Such a thing is however possible via IDA’s Bochs debugger. This approach
 was adopted by Teddy and Benjamin in MISC No. 93, but also by Saurabh Sharma
-&lt;sup id=&quot;fnref:2&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:2&quot; class=&quot;footnote&quot;&gt;2&lt;/a&gt;&lt;/sup&gt;. This method usually works well and makes debugging a bootloader an
+&lt;sup id=&quot;fnref:2&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:2&quot; class=&quot;footnote&quot; rel=&quot;footnote&quot;&gt;2&lt;/a&gt;&lt;/sup&gt;. This method usually works well and makes debugging a bootloader an
 easy task.&lt;/p&gt;
 
 &lt;p&gt;In the article associated with the presentation of his Miasm tool at SSTIC in
-2012 &lt;sup id=&quot;fnref:3&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:3&quot; class=&quot;footnote&quot;&gt;3&lt;/a&gt;&lt;/sup&gt;, Fabrice Desclaux showed Miasm possibilities. One of the proposed
+2012 &lt;sup id=&quot;fnref:3&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:3&quot; class=&quot;footnote&quot; rel=&quot;footnote&quot;&gt;3&lt;/a&gt;&lt;/sup&gt;, Fabrice Desclaux showed Miasm possibilities. One of the proposed
 applications was the emulation of a bootloader.&lt;/p&gt;
 
 &lt;p&gt;The ability to fully emulate a bootloader (until the BIOS interruption) with a framework like Miasm gives a sharper control over what’s
@@ -1031,7 +1031,7 @@ will not talk about UEFI.&lt;/p&gt;
 (named Master Boot Record, or MBR) at &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x7C00&lt;/code&gt;, and then jumps to this address.
 The MBR hence contains the bootloader code. At this moment, the
 processor only supports 16-bit instructions and can only address memory in real
-mode &lt;sup id=&quot;fnref:4&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:4&quot; class=&quot;footnote&quot;&gt;4&lt;/a&gt;&lt;/sup&gt;.&lt;/p&gt;
+mode &lt;sup id=&quot;fnref:4&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:4&quot; class=&quot;footnote&quot; rel=&quot;footnote&quot;&gt;4&lt;/a&gt;&lt;/sup&gt;.&lt;/p&gt;
 
 &lt;p&gt;As a reminder, one disk sector contains 512 bytes. Therefore,
 it is not possible to store a lot of code on this sector only. That’s
@@ -1077,7 +1077,7 @@ seg000:7C30 jmp far ptr 0:8000h
 &lt;p&gt;The system used for these tests is Linux-based. Windows 10 users
 should be able to make it work by using Windows Subsystem for Linux
 (WSL), by installing for example Ubuntu using the
-Windows Store &lt;sup id=&quot;fnref:5&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:5&quot; class=&quot;footnote&quot;&gt;5&lt;/a&gt;&lt;/sup&gt;.&lt;/p&gt;
+Windows Store &lt;sup id=&quot;fnref:5&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:5&quot; class=&quot;footnote&quot; rel=&quot;footnote&quot;&gt;5&lt;/a&gt;&lt;/sup&gt;.&lt;/p&gt;
 
 &lt;p&gt;We recommend using the version of Miasm specified in the
 &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;README&lt;/code&gt; file from the GitHub repository. At the time of writing
@@ -1343,7 +1343,7 @@ DAP contains the data to write.&lt;/p&gt;
 &lt;h3 id=&quot;int-19h&quot;&gt;INT 19h&lt;/h3&gt;
 
 &lt;p&gt;The second chosen example is the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;INT 19h&lt;/code&gt; interruption (diskboot). It
-reboots the machine &lt;sup id=&quot;fnref:7&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:7&quot; class=&quot;footnote&quot;&gt;6&lt;/a&gt;&lt;/sup&gt;&lt;sup id=&quot;fnref:8&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:8&quot; class=&quot;footnote&quot;&gt;7&lt;/a&gt;&lt;/sup&gt; and is used in two locations :&lt;/p&gt;
+reboots the machine &lt;sup id=&quot;fnref:7&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:7&quot; class=&quot;footnote&quot; rel=&quot;footnote&quot;&gt;6&lt;/a&gt;&lt;/sup&gt;&lt;sup id=&quot;fnref:8&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:8&quot; class=&quot;footnote&quot; rel=&quot;footnote&quot;&gt;7&lt;/a&gt;&lt;/sup&gt; and is used in two locations :&lt;/p&gt;
 
 &lt;ol&gt;
   &lt;li&gt;at address &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x892E&lt;/code&gt;, which is called if a fatal error occurs,&lt;/li&gt;
@@ -1547,14 +1547,14 @@ the same!&lt;/p&gt;
 &lt;h2 id=&quot;bootloader-modification-to-decrypt-the-mft&quot;&gt;Bootloader modification to decrypt the MFT&lt;/h2&gt;
 
 &lt;p&gt;If we have a mechanism to write directly into the memory of the machine (for
-example by using a PCI Express card &lt;sup id=&quot;fnref:9&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:9&quot; class=&quot;footnote&quot;&gt;8&lt;/a&gt;&lt;/sup&gt;, or other interfaces like FireWire or
-Thunderbolt &lt;sup id=&quot;fnref:10&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:10&quot; class=&quot;footnote&quot;&gt;9&lt;/a&gt;&lt;/sup&gt;), it is possible to decrypt the MFT data. The attack
+example by using a PCI Express card &lt;sup id=&quot;fnref:9&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:9&quot; class=&quot;footnote&quot; rel=&quot;footnote&quot;&gt;8&lt;/a&gt;&lt;/sup&gt;, or other interfaces like FireWire or
+Thunderbolt &lt;sup id=&quot;fnref:10&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:10&quot; class=&quot;footnote&quot; rel=&quot;footnote&quot;&gt;9&lt;/a&gt;&lt;/sup&gt;), it is possible to decrypt the MFT data. The attack
 consists in patching the bootloader memory so that its uses the remaining key on
 the stack. This section simulates this attack using Miasm.&lt;/p&gt;
 
 &lt;p&gt;To do so, we will inject some code at address &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x82A8&lt;/code&gt;. This function checks
 that the key entered is the expected one. Given that it has been erased from
-the hard drive, and that the ransom text is completely random &lt;sup id=&quot;fnref:11&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:11&quot; class=&quot;footnote&quot;&gt;10&lt;/a&gt;&lt;/sup&gt;, the
+the hard drive, and that the ransom text is completely random &lt;sup id=&quot;fnref:11&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:11&quot; class=&quot;footnote&quot; rel=&quot;footnote&quot;&gt;10&lt;/a&gt;&lt;/sup&gt;, the
 bootloader has in theory no way to know if the entered key is the right one. This
 function will always return 0 (incorrect key). The injected code will copy the
 key Salsa20 from the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x674A&lt;/code&gt; address to a specific location on the stack, so
