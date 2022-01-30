@@ -1,4 +1,626 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://jekyllrb.com/" version="4.2.0">Jekyll</generator><link href="https://aguinet.github.io//feed.xml" rel="self" type="application/atom+xml" /><link href="https://aguinet.github.io//" rel="alternate" type="text/html" hreflang="en" /><updated>2021-11-13T10:42:29+01:00</updated><id>https://aguinet.github.io//feed.xml</id><subtitle></subtitle><entry><title type="html">Donjon CTF SSSGX write-up: linear functions strike back</title><link href="https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx.html" rel="alternate" type="text/html" title="Donjon CTF SSSGX write-up: linear functions strike back" /><published>2020-11-22T00:00:00+01:00</published><updated>2020-11-22T00:00:00+01:00</updated><id>https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx</id><content type="html" xml:base="https://aguinet.github.io//blog/2020/11/22/donjon-ctf-sssgx.html">&lt;p&gt;This writeup presents a solution to the SSSGX Wallet stage of the &lt;a href=&quot;https://donjon-ctf.io/&quot;&gt;2020 Ledger
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en"><generator uri="https://jekyllrb.com/" version="4.2.0">Jekyll</generator><link href="https://aguinet.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://aguinet.github.io/" rel="alternate" type="text/html" hreflang="en" /><updated>2022-01-30T20:24:52+01:00</updated><id>https://aguinet.github.io/feed.xml</id><subtitle></subtitle><entry><title type="html">Breaking decryption.ch: the CTF that wasn’t meant to be</title><link href="https://aguinet.github.io/blog/2022/01/30/decryption-ch.html" rel="alternate" type="text/html" title="Breaking decryption.ch: the CTF that wasn’t meant to be" /><published>2022-01-30T00:00:00+01:00</published><updated>2022-01-30T00:00:00+01:00</updated><id>https://aguinet.github.io/blog/2022/01/30/decryption-ch</id><content type="html" xml:base="https://aguinet.github.io/blog/2022/01/30/decryption-ch.html">&lt;p&gt;This article is a write up regarding the challenge published on
+&lt;a href=&quot;https://decryption.ch&quot;&gt;decryption.ch&lt;/a&gt; by the &lt;a href=&quot;https://ex0-sys.com/&quot;&gt;Ex0-Sys&lt;/a&gt; company. Even if I resolved
+it in 2019, it took me a bit of time and motivation to write and finalize that
+blog post. Better late than never, as they say.&lt;/p&gt;
+
+&lt;p&gt;Anyway, this post describes how the challenge has been broken, from reverse
+engineering the software to actually decrypting the provided &lt;em&gt;secure&lt;/em&gt; container.&lt;/p&gt;
+
+&lt;p&gt;The source code that breaks the challenge is &lt;a href=&quot;https://github.com/aguinet/alphatav&quot;&gt;available on
+Github&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p class=&quot;figure&quot;&gt;&lt;img src=&quot;/assets/2022-01-30-decryption-ch/bounty.jpg&quot; alt=&quot;&quot; class=&quot;center-image&quot; /&gt;
+A screenshot of the &lt;a href=&quot;https://decryption.ch&quot;&gt;decryption.ch&lt;/a&gt; web site&lt;/p&gt;
+
+&lt;h1 id=&quot;the-alphatav-software&quot;&gt;The AlphaTav software&lt;/h1&gt;
+
+&lt;p&gt;The challenge is about assessing the cryptography strength of the &lt;a href=&quot;https://alpha-tav-vault.com&quot;&gt;AlphaTav
+software&lt;/a&gt;. This software claims various security properties:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;being quantum resistant&lt;/li&gt;
+  &lt;li&gt;time limitation&lt;/li&gt;
+  &lt;li&gt;destruction on bad credentials&lt;/li&gt;
+  &lt;li&gt;computer hardware restriction (based on a technology named &lt;a href=&quot;https://www.alpha-tav-vault.com/documentation/#uid&quot;&gt;Ex0-UiD&lt;/a&gt;)&lt;/li&gt;
+  &lt;li&gt;final encryption key up to 87000 bits&lt;/li&gt;
+  &lt;li&gt;over encryption with &lt;em&gt;conventional&lt;/em&gt; algorithms (AES256/3DES/RC2)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Some of these properties (like time limitation &amp;amp; destruction on bad
+credentials) are “enforced” by the AlphaTav client itself. As you might
+imagine, this holds as long as you don’t have any other code that would
+implement the same algorithm.&lt;/p&gt;
+
+&lt;p&gt;Moreover, the AlphaTav software has multiple particularities that need to be
+defined in order to make the rest of the writeup easier to follow:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;a container is separated into four files:
+    &lt;ul&gt;
+      &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK3&lt;/code&gt;: a file that contains settings (e.g. used algorithms, time restriction &amp;amp; so on) and some key material&lt;/li&gt;
+      &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt;: encrypted data split in three parts&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;multiple raw key materials: password &amp;amp; PIN code.&lt;/li&gt;
+  &lt;li&gt;multiple levels of security:
+    &lt;ul&gt;
+      &lt;li&gt;&lt;a href=&quot;https://www.alpha-tav-vault.com/documentation/#level1&quot;&gt;level 1&lt;/a&gt;: only the &lt;a href=&quot;#the-fragmentation-algorithm-atdatk1atk2&quot;&gt;fragmentation algorithm&lt;/a&gt; is used to “encrypt” &lt;sup id=&quot;fnref:1&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:1&quot; class=&quot;footnote&quot; rel=&quot;footnote&quot;&gt;1&lt;/a&gt;&lt;/sup&gt; data.&lt;/li&gt;
+      &lt;li&gt;&lt;a href=&quot;https://www.alpha-tav-vault.com/documentation/#level2&quot;&gt;level 2&lt;/a&gt;: level 1 with a random “PIN code” (see below) as key material &lt;sup id=&quot;fnref:2&quot; role=&quot;doc-noteref&quot;&gt;&lt;a href=&quot;#fn:2&quot; class=&quot;footnote&quot; rel=&quot;footnote&quot;&gt;2&lt;/a&gt;&lt;/sup&gt;&lt;/li&gt;
+      &lt;li&gt;&lt;a href=&quot;https://www.alpha-tav-vault.com/documentation/#level3&quot;&gt;level 3&lt;/a&gt;: level 2, with an additional user password as key material&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Surprisingly enough, and as we will see in the sections below, the Exo-UID
+isn’t used as key material and is just a test performed by the decryption
+process that verifies that the expected hardware is present (see previous
+remark on time limit). Moreover:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;the PIN code is a 16-byte random buffer saved as a bar code. It is generated
+by the software when encrypting, and is needed to decrypt.&lt;/li&gt;
+  &lt;li&gt;the password is optional and provided by the user.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;We’ll discuss the various claims in the following sections. Let’s now take a
+look at the actual challenge.&lt;/p&gt;
+
+&lt;h1 id=&quot;the-challenge-material&quot;&gt;The challenge material&lt;/h1&gt;
+
+&lt;p&gt;We are provided with:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;a 460MB container encrypted with:
+    &lt;ul&gt;
+      &lt;li&gt;Vault level 3 (4 files, PIN code, password)&lt;/li&gt;
+      &lt;li&gt;Hardware restrictions (4 USB keys + various computers)&lt;/li&gt;
+      &lt;li&gt;Time limitation&lt;/li&gt;
+      &lt;li&gt;Destruction on bad credentials&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;the AlphaTav version used to make this container, as a Windows installer&lt;/li&gt;
+  &lt;li&gt;a free 30 days licence on demand&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;What we &lt;strong&gt;don’t&lt;/strong&gt; have:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;The password used to encrypt this container&lt;/li&gt;
+  &lt;li&gt;The generated PIN-code&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;If we manage to decrypt the container, we are supposed to find a video with the
+instructions to validate the challenge.&lt;/p&gt;
+
+&lt;h1 id=&quot;methodology&quot;&gt;Methodology&lt;/h1&gt;
+
+&lt;p&gt;So we have to crack an encrypted container, without the raw key material that
+was used to create it, and without a description of the proprietary algorithm
+that has been used. The methodology I use for these cases is somehow always the
+same:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;reverse engineer the application to understand the underlying algorithms and/or file formats&lt;/li&gt;
+  &lt;li&gt;reimplement an encryption and/or decryption tool it in a language that
+allows fast prototyping and provides a cryptography toolbox with the usual
+primitives (in this case Python has been used)&lt;/li&gt;
+  &lt;li&gt;create a container similar to the one of the challenge, but whose original
+content is known (can help figuring out implementation errors)&lt;/li&gt;
+  &lt;li&gt;emit hypothesis about potential cryptographic vulnerabilities&lt;/li&gt;
+  &lt;li&gt;play with our implementation and container to prototype attacks and
+(in)validate the previous hypothesis&lt;/li&gt;
+  &lt;li&gt;repeat until it works, or until we can demonstrate that it will require a
+bruteforce we won’t be able to perform&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;In this case, I started to understand the decryption routine, but doing so with
+the encryption one would also work. Per design, you should be able to derive
+one from the other.&lt;/p&gt;
+
+&lt;p&gt;One of the hardest part in this is the reverse engineering job to
+create a third party implementation we can toy with. We need to be rigorous
+here, as a minor mistake in the algorithm reversing/implementation can be hard
+to detect and cause potentially valid attacks to fail. One way to make this not
+too much of a pain is to extract as much test vectors as possible from the
+original application for every step of the algorithm (e.g. using a debugger),
+and use these vectors to validate our custom implementation.&lt;/p&gt;
+
+&lt;p&gt;So let’s go through all these steps!&lt;/p&gt;
+
+&lt;h1 id=&quot;reverse-engineering&quot;&gt;Reverse engineering&lt;/h1&gt;
+
+&lt;p&gt;The only thing in our possession to figure out the encryption algorithm(s) is
+the AlphaTav software, which is an obfuscated .Net application. We can also
+gather public information about what is supposed to happen at least on a high
+level view:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2022-01-30-decryption-ch/official_workflow.jpg&quot; alt=&quot;&quot; class=&quot;center-image&quot; /&gt;&lt;/p&gt;
+
+&lt;h2 id=&quot;deobfuscation--debugging&quot;&gt;Deobfuscation / debugging&lt;/h2&gt;
+
+&lt;p&gt;In order to do a first static analysis, we used the very efficient
+&lt;a href=&quot;https://github.com/0xd4d/de4dot&quot;&gt;de4dot&lt;/a&gt; software, which can deobfuscate a large variety of protectors.&lt;/p&gt;
+
+&lt;p&gt;Fortunately for us, &lt;a href=&quot;https://github.com/0xd4d/de4dot&quot;&gt;de4dot&lt;/a&gt; detects that the AlphaTav software has
+been obfuscated with CryptoObfuscator… twice.  Indeed, some libraries also
+have to be deobfuscated again, still using &lt;a href=&quot;https://github.com/0xd4d/de4dot&quot;&gt;de4dot&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;What’s nice about this tool is that it can generate a proper binary that just
+runs. So we can now use &lt;a href=&quot;https://github.com/0xd4d/dnSpy&quot;&gt;dnSpy&lt;/a&gt; to debug and analyze the software.&lt;/p&gt;
+
+&lt;p&gt;Now that we are in a more comfortable position, our main goal was to follow
+two &lt;em&gt;data flows&lt;/em&gt;: the one that starts from clear data to encrypted data, and the
+one that starts from raw key material (the password / PIN code) to whatever
+derivations might happen, all towards the convergence of these two &lt;em&gt;flows&lt;/em&gt; to
+the final encrypted data.&lt;/p&gt;
+
+&lt;h2 id=&quot;the-decryption-algorithm&quot;&gt;The decryption algorithm&lt;/h2&gt;
+
+&lt;p&gt;After tedious reading of .Net code, and some debugging session to be sure
+everything was correctly understood, here is a scheme of the decryption
+algorithm as understood after reverse engineering:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2022-01-30-decryption-ch/decrypt_algo.svg&quot; alt=&quot;&quot; class=&quot;center-image&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;This is a bit huge, so let’s discuss the various parts of this algorithm.&lt;/p&gt;
+
+&lt;h3 id=&quot;the-fragmentation-algorithm-atdatk1atk2&quot;&gt;The fragmentation algorithm (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt;)&lt;/h3&gt;
+
+&lt;p&gt;The AlphaTav fragmentation algorithm is an encoding process that splits a byte
+into three different values. In the AlphaTav software, each of these values are
+stored in different files:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;AlphaTav (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AT&lt;/code&gt;), stored in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt;&lt;/li&gt;
+  &lt;li&gt;Block sizes (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BS&lt;/code&gt;), stored in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt;. This file &lt;strong&gt;is not encrypted&lt;/strong&gt;.&lt;/li&gt;
+  &lt;li&gt;Bit indexes (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BI&lt;/code&gt;), stored in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Here is a Python code describing how an 8-bit value is encoded:&lt;/p&gt;
+
+&lt;div class=&quot;language-python highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;EncodedData&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;__init__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;V&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;BC&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;BitCount&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;V&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AT&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BC&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;or&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BC&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;and&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;BC&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;4&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;V&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;mh&quot;&gt;0xFF&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;or&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;V&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+            &lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BS&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;else&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+            &lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BS&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;BC&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AT&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;else&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BC&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BI&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;V&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;!=&lt;/span&gt; &lt;span class=&quot;mh&quot;&gt;0xFF&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;and&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;V&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;!=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+            &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;reversed&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;range&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)):&lt;/span&gt;
+                &lt;span class=&quot;n&quot;&gt;b&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;V&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;
+                &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;int&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AT&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;):&lt;/span&gt;
+                    &lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BI&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;10&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BI&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;7&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And a few examples:&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;V&lt;/th&gt;
+      &lt;th&gt;bin(V)&lt;/th&gt;
+      &lt;th&gt;Bit count&lt;/th&gt;
+      &lt;th&gt;AT&lt;/th&gt;
+      &lt;th&gt;BS&lt;/th&gt;
+      &lt;th&gt;BI&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;0x07&lt;/td&gt;
+      &lt;td&gt;0b00000111&lt;/td&gt;
+      &lt;td&gt;3&lt;/td&gt;
+      &lt;td&gt;1&lt;/td&gt;
+      &lt;td&gt;3&lt;/td&gt;
+      &lt;td&gt;567&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;0xAF&lt;/td&gt;
+      &lt;td&gt;0b10101111&lt;/td&gt;
+      &lt;td&gt;6&lt;/td&gt;
+      &lt;td&gt;0&lt;/td&gt;
+      &lt;td&gt;2&lt;/td&gt;
+      &lt;td&gt;13&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;0x2F&lt;/td&gt;
+      &lt;td&gt;0b00101111&lt;/td&gt;
+      &lt;td&gt;5&lt;/td&gt;
+      &lt;td&gt;0&lt;/td&gt;
+      &lt;td&gt;3&lt;/td&gt;
+      &lt;td&gt;13&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;0x00&lt;/td&gt;
+      &lt;td&gt;0b00000000&lt;/td&gt;
+      &lt;td&gt;0&lt;/td&gt;
+      &lt;td&gt;0&lt;/td&gt;
+      &lt;td&gt;0&lt;/td&gt;
+      &lt;td&gt;0&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;0xFF&lt;/td&gt;
+      &lt;td&gt;0b11111111&lt;/td&gt;
+      &lt;td&gt;8&lt;/td&gt;
+      &lt;td&gt;1&lt;/td&gt;
+      &lt;td&gt;0&lt;/td&gt;
+      &lt;td&gt;0&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;Some points worth mentioning for what’s next:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AT&lt;/code&gt; is just one bit wide, and is stored as a bitstream in ATK1&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BS&lt;/code&gt; is basically the number of bits at one or zero, depending on &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AT&lt;/code&gt;
+(except for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x00&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0xFF&lt;/code&gt;). It is stored as packed 4 bit numbers.&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BI&lt;/code&gt; is basically a base 10 encoding of the bits that are at one or zero
+(depending on AT)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Moreover, as you can see in the table above, the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BI&lt;/code&gt; value can be bigger
+than one byte. That being said, there is only 99 possible different values (run
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;len(set(EncodedData(v).BI for v in range(256)))&lt;/code&gt; to convince yourself). We
+can thus encode this value on one byte, with a fixed substitution table to
+recover the original value. Such a table is included in the AlphaTav software.
+The important thing to remember here is that the MSB bit of an encoded &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BI&lt;/code&gt;
+value will always be zero. This will be very important for what’s next.&lt;/p&gt;
+
+&lt;h3 id=&quot;the-atk3-file&quot;&gt;The ATK3 file&lt;/h3&gt;
+
+&lt;p&gt;This file is actually a TIFF image. It contains mainly two things:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;
+    &lt;p&gt;inside its copyright metadata: encryption key material used in various key
+derivation process. The actual key used for the AES/3DES/RC2 algorithm is
+derived from these information. The important point here is that
+no user key material is necessary to compute this key.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;encoded inside the value of its green pixels (!): a serialized .Net object
+containing information about the encryption algorithm used for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt;.
+It also contains the various “restrictions”. This is encrypted with key material
+derived from the copyright metadata above, so we are always able to decrypt
+it.&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Using a serialized .Net object doesn’t seem the best choice for
+interoperability with non .Net platforms, and might also be &lt;a href=&quot;https://github.com/pwntester/ysoserial.net&quot;&gt;a security
+risk&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;Moreover, as we just said, deserializing a .Net object from something else than
+a .Net virtual machine is not that trivial. I’ve built a
+&lt;a href=&quot;https://construct.readthedocs.io/en/latest/&quot;&gt;construct&lt;/a&gt;-based python module
+for this, that does not support the whole format, but is enough for the need of
+this challenge: &lt;a href=&quot;https://github.com/aguinet/dotnetDeser&quot;&gt;dotnetDeser&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h3 id=&quot;keystream-derivation-process&quot;&gt;Keystream derivation process&lt;/h3&gt;
+
+&lt;p&gt;What is called “keystream” is a fixed amount of bytes that is generated out of
+many information, thanks to a &lt;a href=&quot;https://en.wikipedia.org/wiki/PBKDF2&quot;&gt;PBKDF2&lt;/a&gt;
+function:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;the user password (if used any)&lt;/li&gt;
+  &lt;li&gt;the PIN code&lt;/li&gt;
+  &lt;li&gt;additional restriction information (e.g. hardware ones), that you can just
+gather from &lt;a href=&quot;#the-atk3-file&quot;&gt;ATK3&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The length of this keystream depends on the length &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;L&lt;/code&gt; of the user password.
+The formula is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;#(KS) = clamp(100*L, 1024, 131072)&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;The user password and PIN code, among with information extracted from
+&lt;a href=&quot;#the-atk3-file&quot;&gt;ATK3&lt;/a&gt;, are used to generate something called a “factor table”.
+We don’t really need to understand that part to crack the challenge, so it will
+be left aside for the sake of consistency.&lt;/p&gt;
+
+&lt;p&gt;This factor table, along with the additional restriction, are all mixed
+together through a PBDKF2 function to finally generate the keystream. It is
+interesting to note that a first version that I have reversed directly used the
+“factor table” as a keystream (and that’s why the keystream is still called
+“factor table” in various places of the PoC code).&lt;/p&gt;
+
+&lt;p&gt;Obviously, in these information, we don’t have the user password and the PIN
+code, so no direct way to regenerate that keystream.&lt;/p&gt;
+
+&lt;p&gt;It is also important to notice that, once we have this keystream, we can fully
+retrieve the encrypted zip. Indeed, it gives the IV for the AES/3DES/RC2
+algorithms, and their key is already known thanks to &lt;a href=&quot;#the-atk3-file&quot;&gt;ATK3&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h1 id=&quot;the-cracking-algorithm&quot;&gt;The cracking algorithm&lt;/h1&gt;
+
+&lt;h2 id=&quot;keystream-reuse-and-retrieval&quot;&gt;Keystream reuse and retrieval&lt;/h2&gt;
+
+&lt;p&gt;That being said, the main vulnerability in this design is that this &lt;strong&gt;fixed
+length&lt;/strong&gt; keystream is reused multiple times to XOR data, and not only inside
+the same file, but also accross &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt; &amp;amp; &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt; isn’t XORed with this
+keystream).&lt;/p&gt;
+
+&lt;p&gt;Let’s take a closer look at how this keystream is used:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2022-01-30-decryption-ch/decrypt_algo_ks.svg&quot; alt=&quot;&quot; class=&quot;center-image&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Before trying to exploit known clear text to recover that keystream, we need to
+be able to decrypt and &lt;em&gt;ungzip&lt;/em&gt; &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt;. According to our scheme, they
+are encrypted using either AES, 3DES or RC2 in CBC mode. The key is known
+(derived from information in &lt;a href=&quot;#the-atk3-file&quot;&gt;ATK3&lt;/a&gt;), but the IV is unknown, as
+it is the first bytes of the keystream we are trying to recover. But let’s take
+a look at how CBC work:&lt;/p&gt;
+
+&lt;p class=&quot;figure&quot;&gt;&lt;img src=&quot;/assets/2022-01-30-decryption-ch/CBC_decr.svg&quot; alt=&quot;&quot; class=&quot;center-image&quot; /&gt;
+From &lt;a href=&quot;https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation#Cipher_block_chaining_(CBC)&quot;&gt;Wikipedia&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;Not knowing the IV only makes the first block unavailable. In the case of AES,
+it is thus 16 bytes. In the case of 3DES or RC2, it is 8 bytes. Now, let’s take
+a look at what a GZip file looks like, to see what we lose:&lt;/p&gt;
+
+&lt;p class=&quot;figure&quot;&gt;&lt;img src=&quot;/assets/2022-01-30-decryption-ch/gzip.svg&quot; alt=&quot;&quot; class=&quot;center-image&quot; /&gt;
+Scheme by &lt;a href=&quot;https://github.com/corkami&quot;&gt;Corkami&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;In our cases, the first 8 bytes are, for instance:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;1F 8B&lt;/code&gt;: header&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;08&lt;/code&gt;: use DEFLATE (always the case)&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;00&lt;/code&gt;: no flags (so no filename)&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;66 59 59 3A&lt;/code&gt;: timestamp (we don’t care)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;So, if &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt; is encrypted using 3DES or RC2, then we can
+fully decompress the underlying DEFLATE stream. In the case of AES, we miss the
+first 8 bytes of the actual DEFLATE stream. &lt;a href=&quot;#incomplete-gzip-streams&quot;&gt;The end of this blog post
+&lt;/a&gt; describes how we can still recover almost all the
+decompressed data even in this case. Note that, for the actual challenge
+container, this is not really an issue as none of the files are encrypted with
+AES (did someone say this was a CTF?).&lt;/p&gt;
+
+&lt;p&gt;With all these information in mind, let’s formalize a bit the cracking
+algorithm.&lt;/p&gt;
+
+&lt;h3 id=&quot;hunting-for-known-plaintext&quot;&gt;Hunting for known plaintext&lt;/h3&gt;
+
+&lt;p&gt;Let’s consider we are able to ungzip &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt;. The only
+remaining unknown information is still the &lt;strong&gt;fixed length&lt;/strong&gt; keystream (now
+named &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;KS&lt;/code&gt;). As it is reused within the same file and for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt; &amp;amp; &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt; with
+a XOR operator, knowning the data that has been fed to the &lt;a href=&quot;#the-fragmentation-algorithm-atdatk1atk2&quot;&gt;fragmentation
+algorithm&lt;/a&gt; will give us known &lt;em&gt;Bit
+Indexes&lt;/em&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BI&lt;/code&gt;) and &lt;em&gt;AlphaTav&lt;/em&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AT&lt;/code&gt;) clear values, and hence known bits of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;KS&lt;/code&gt;.
+The scheme below describes this attack:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2022-01-30-decryption-ch/attack.svg&quot; alt=&quot;&quot; class=&quot;center-image&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;So let’s hunt for known data!&lt;/p&gt;
+
+&lt;p&gt;The first thing to notice is that the data that are fed to the &lt;a href=&quot;#the-fragmentation-algorithm-atdatk1atk2&quot;&gt;fragmentation
+algorithm&lt;/a&gt; are not the actual user
+files, but an encrypted zip version of them.  We don’t need the password of
+this zip for now, even if it can be derived &lt;a href=&quot;#the-zip-password&quot;&gt;straight from
+ATK3&lt;/a&gt;. The important parts are:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;we can guess some known values from the zip format specification&lt;/li&gt;
+  &lt;li&gt;it is an encrypted and compress stream, so the values of this zip file can
+be considered as random ones&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h4 id=&quot;thanks-to-the-zip-format&quot;&gt;Thanks to the zip format&lt;/h4&gt;
+
+&lt;p&gt;Let’s take a look at what a zip file look like:&lt;/p&gt;
+
+&lt;p class=&quot;figure&quot;&gt;&lt;img src=&quot;/assets/2022-01-30-decryption-ch/zip.svg&quot; alt=&quot;&quot; class=&quot;center-image&quot; /&gt;
+Scheme by &lt;a href=&quot;https://github.com/corkami&quot;&gt;Corkami&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;As we can see from this scheme, there are some fixed signatures we can use as
+known data. This is what we do as a first bootstrap step. In the case of the
+challenge, this helps recover approximately 12% of the keystream.&lt;/p&gt;
+
+&lt;h4 id=&quot;thanks-to-block-sizes-in-atk2&quot;&gt;Thanks to block sizes (in ATK2)&lt;/h4&gt;
+
+&lt;p&gt;If we look carefully at the &lt;a href=&quot;##the-decryption-algorithm&quot;&gt;decryption scheme&lt;/a&gt;, we
+see that ATK2 isn’t xored with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;KS&lt;/code&gt;. This means we have direct access to the
+&lt;em&gt;Block Sizes&lt;/em&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BS&lt;/code&gt;) part of the fragmented data. Moreover, one interesting
+fact of the &lt;a href=&quot;#the-fragmentation-algorithm-atdatk1atk2&quot;&gt;fragmentation algorithm&lt;/a&gt;
+is that if &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BS == 0&lt;/code&gt;, then we can have only two original clear values:
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x00&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0xFF&lt;/code&gt;. The discrimination is made thanks to the associated
+&lt;em&gt;AlphaTav&lt;/em&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AT&lt;/code&gt;) bit.&lt;/p&gt;
+
+&lt;p&gt;Coupled with the fact that the fragmented data are the ones of an &lt;a href=&quot;#the-decryption-algorithm&quot;&gt;encrypted
+zip stream&lt;/a&gt;, it means that the probability of having
+an original unfragmented value of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x00&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0xFF&lt;/code&gt; is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;2/256&lt;/code&gt;. For big
+containers that are a few megabytes, as we have already recovered a few bits
+from &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;KS&lt;/code&gt; thanks to the zip format (and thus some &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AT&lt;/code&gt; values), our
+experiences show we usually manage to figure out enough &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x00&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0xFF&lt;/code&gt;
+original values for the zip stream, and with them what remains of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;KS&lt;/code&gt;. In
+the case of the challenge, the container is around 460Mb, so we have plenty of
+data to run the attack and make it successful.&lt;/p&gt;
+
+&lt;p&gt;We can also notice that there is some form of “avalanche” effect, due to the
+fact that &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;KS&lt;/code&gt; is reused repeatedly across the same file, and across
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt; &amp;amp; &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt;. Indeed, if we manage to recover at least one new bit of
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;KS&lt;/code&gt; with this technique, it means we might recover new bits of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;KS&lt;/code&gt; by
+just rerunning this part of the algorithm from the beginning, and so on.  In
+the case of the challenge, only one run was necessary to fully recover &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;KS&lt;/code&gt;
+(as this is a relatively big container).&lt;/p&gt;
+
+&lt;p&gt;We also think there is an interesting math exercise that would compute the
+probability of success of this attack given the size of the original container
+(considering the number of already known &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;KS&lt;/code&gt; bits).&lt;/p&gt;
+
+&lt;h3 id=&quot;figuring-out-the-keystream-length&quot;&gt;Figuring out the keystream length&lt;/h3&gt;
+
+&lt;p&gt;One thing we didn’t discuss yet is how to find the length of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;KS&lt;/code&gt;, which is,
+as a reminder, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;#(KS) = clamp(100*L, 1024, 131072)&lt;/code&gt; (with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;L&lt;/code&gt; the length of
+the user provided password, which is unknown).&lt;/p&gt;
+
+&lt;p&gt;One interesting thing we have noticed during the analysis of the &lt;a href=&quot;#the-fragmentation-algorithm-atdatk1atk2&quot;&gt;fragmentation
+algorithm&lt;/a&gt; is that the maximum value
+for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AT&lt;/code&gt; is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;99&lt;/code&gt;, so the MSB of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AT&lt;/code&gt; will &lt;strong&gt;always be 0&lt;/strong&gt;. So if we take
+two different blocks of ATD data of length &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;N&lt;/code&gt; whose index is aligned on
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;N&lt;/code&gt; bytes, and XOR-ing these two blocks gives at least one byte with its MSB
+equals to 1, it means we have guessed a wrong value for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;#(KS)&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Moreover, reverse engineering the AlphaTav software shows that the password
+length &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;L&lt;/code&gt; is between 10 and 1310. So we have 1300 possibilities for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;L&lt;/code&gt;,
+and thus for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;#(KS)&lt;/code&gt; (clamping does not change this), which is easily
+&lt;em&gt;bruteforcable&lt;/em&gt; with this technique.&lt;/p&gt;
+
+&lt;p&gt;Then, once we have figured out candidates for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;#(KS)&lt;/code&gt;, we verify that we don’t
+find any inconsistencies while guessing clear texts. Indeed, if two clear texts
+at various positions provides two different bits for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;KS&lt;/code&gt;, it means &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;#(KS)&lt;/code&gt;
+isn’t valid (considering there are no errors in the guessed clear texts).&lt;/p&gt;
+
+&lt;p&gt;In practice, we can crack the challenge with the first &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;L&lt;/code&gt; value guessed.&lt;/p&gt;
+
+&lt;h3 id=&quot;the-zip-password&quot;&gt;The zip password&lt;/h3&gt;
+
+&lt;p&gt;The zip password is basically a number called &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TimeKey&lt;/code&gt; stored in the
+serialized .Net object in &lt;a href=&quot;#the-atk3-file&quot;&gt;ATK3&lt;/a&gt;. It is more precisely the base
+8 representation of this number as a string. The important point is that it
+does not depend on any user supplied key material, and so is always computable
+given only &lt;a href=&quot;#the-atk3-file&quot;&gt;ATK3&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&quot;incomplete-gzip-streams&quot;&gt;Incomplete GZip streams&lt;/h2&gt;
+
+&lt;p&gt;There’s this problem of incomplete GZip stream we left aside previously.&lt;/p&gt;
+
+&lt;p&gt;As a reminder, we are in a situation where we are missing the first 16 bytes of
+a GZip file. As seen &lt;a href=&quot;#keystream-reuse-and-retrieval&quot;&gt;above&lt;/a&gt;, a GZip file is
+basically a wrapper around a compressed stream.
+&lt;a href=&quot;https://en.wikipedia.org/wiki/Deflate&quot;&gt;DEFLATE&lt;/a&gt; is the only one officially
+supported, according to &lt;a href=&quot;https://datatracker.ietf.org/doc/html/rfc1952&quot;&gt;RFC
+1952&lt;/a&gt;. This is also the
+algorithm used in the files generated by AlphaTav. So, in the end, what we are
+missing is the beggining of the DEFLATE stream.&lt;/p&gt;
+
+&lt;p&gt;So let’s take a high-level view at DEFLATE streams:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2022-01-30-decryption-ch/deflate_stream.svg&quot; alt=&quot;&quot; class=&quot;center-image&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;A DEFLATE stream is a &lt;strong&gt;bit&lt;/strong&gt;-stream, built around blocks. Each block defines a
+type of data, which is either raw/uncompressed data, or compressed Huffman
+data using a static or dynamically computed tree.&lt;/p&gt;
+
+&lt;p&gt;To still decompress as much data as possible, the general idea is to first find
+the bit index of the next block, and then decompress the DEFLATE stream
+starting from this block. Doing this, it is important to note that one block
+can point to data from the previous blocks, up to 32 kb. If such a thing happens,
+we generate &lt;em&gt;unknown&lt;/em&gt; bytes in the recovered stream. We thus end up with a
+stream with unknown bytes at the beginning, and this can happen until
+backtracking only points to known data. This is illustrated in the scheme
+below:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/2022-01-30-decryption-ch/recovered_deflate.svg&quot; alt=&quot;&quot; class=&quot;center-image&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Finding the bit index of the next block is done by bruteforcing it:&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;we start at bit &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt; in the DEFLATE stream&lt;/li&gt;
+  &lt;li&gt;we launch a full decompression of the stream. If some data are found to be
+incoherent, add 1 to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt; and go to 1.&lt;/li&gt;
+  &lt;li&gt;if we found the last block, make sure it is actually the end of the DEFLATE
+stream. If not, add 1 to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt; and go to 1. Otherwise, the position of the next
+valid block is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt;.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;Doing this, we manage to partially decompress the DEFLATE stream. The only
+thing we don’t know is how much decompressed data are missing at the beginning.
+We need this information, otherwise we can’t “align” &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt; and/or
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt;. Fortunately (again), the GZip format provides, as its four last
+bytes, the size of the original data (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DecompSize&lt;/code&gt;). So, we have exactly
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DecompSize-PartialDecompSize&lt;/code&gt; unknown bytes at the beginning of the partially
+decompressed data.&lt;/p&gt;
+
+&lt;p&gt;To implement this algorithm, we tweaked the excellent &lt;a href=&quot;https://www.nayuki.io/page/simple-deflate-decompressor&quot;&gt;pure Python DEFLATE
+implemention by Project
+Nayuki&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;In practice, in the tests we’ve done, recovering the index of the next block
+only takes a few seconds, and we manage to recover around 99.9% of the
+decompressed data.&lt;/p&gt;
+
+&lt;h1 id=&quot;cracking-the-challenge&quot;&gt;Cracking the challenge&lt;/h1&gt;
+
+&lt;p&gt;&lt;a href=&quot;#the-challenge-material&quot;&gt;As said previously&lt;/a&gt;, the challenge is an AlphaTav
+container. On the 2019-10-11, Ex0-Sys published the last (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK3&lt;/code&gt;) of the four
+files (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK3&lt;/code&gt;), allowing us to launch our attack.&lt;/p&gt;
+
+&lt;p&gt;In this case, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt; are encrypted with, respectively,
+RC2/3DES/3DES. We are thus lucky enough not to have to deal with the &lt;a href=&quot;#incomplete-gzip-streams&quot;&gt;partial
+GZip stream issue&lt;/a&gt;. Moreover, as the container
+is 460MB, we had plenty of known bits to play with, and the keystream is
+successfully retreived in less than a minute (what actually takes of the time
+is decrypting and decompressing the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AT*&lt;/code&gt; files in Python).&lt;/p&gt;
+
+&lt;p&gt;Once cracked, we are left with a zip file that contains a video to claim the
+bounty, and another AlphaTav container named &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Bounty Challenge BTC Wallet.at{d,k1,k2,k3}&lt;/code&gt;.&lt;/p&gt;
+
+&lt;h2 id=&quot;bonus-container-with-the-electrum-wallet&quot;&gt;Bonus: container with the Electrum wallet&lt;/h2&gt;
+
+&lt;p&gt;Cracking the previous container was enough to claim the bounty, but we were
+curious about this new container. Here, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt;/&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK2&lt;/code&gt; are encrypted
+with, respectively, AES256/AES256/3DES. We have thus to deal with the &lt;a href=&quot;#incomplete-gzip-stream&quot;&gt;partial
+GZip stream issue&lt;/a&gt;. Fortunately, our partial
+decompression algorithm allows us to recover 99.9% of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATD&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ATK1&lt;/code&gt;,
+giving plenty of data to run our keystream recovery attack.&lt;/p&gt;
+
+&lt;p&gt;After cracking the container, we are left with an
+&lt;a href=&quot;https://electrum.org/&quot;&gt;electrum&lt;/a&gt; wallet, whose passphrase is unknown to us (at
+that time).&lt;/p&gt;
+
+&lt;h1 id=&quot;conclusion&quot;&gt;Conclusion&lt;/h1&gt;
+
+&lt;p&gt;As stated in the title of this article, this somehow looked like a CTF, as for
+every step of the algorithm there was always something possible to achieve to
+move to the next one (e.g. having reliable clear text values thanks to the zip
+format, being able to still retrieve partial DEFLATE streams, etc). The core of
+the attack is the reuse of a fixed keystream to XOR various data, and
+everything we do in the attack is about finding known clear/encrypted data to
+recover that keystream. As a side note, we also haven’t seen any integrity
+checks in the container, but might have missed it.&lt;/p&gt;
+
+&lt;p&gt;The Ex0-sys team was professional in handling their bounty program. They had
+the real desire to improve their technology. That being said, I think this
+proves once again that cryptosystem designs should be open and their
+implementation easily reviewable by everyone. The only secrets should be
+various key materials.&lt;/p&gt;
+
+&lt;p&gt;Kerckhoff was right, once again.&lt;/p&gt;
+
+&lt;h1 id=&quot;timeline&quot;&gt;Timeline&lt;/h1&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;2019-10-11: challenge broken in the morning (publication of the ATK3 file), sending of the proof by mail&lt;/li&gt;
+  &lt;li&gt;2019-10-11: acknowledgment by the ex0-sys team&lt;/li&gt;
+  &lt;li&gt;2019-10-13: sending of a PoC that decrypts the challenge&lt;/li&gt;
+  &lt;li&gt;2019-10-16: acknowledgment that the PoC works. ex0-sys also provides the wallet password.&lt;/li&gt;
+  &lt;li&gt;2019-10-21: authorization to present this work at a private conference in Paris&lt;/li&gt;
+  &lt;li&gt;[…]: procrastinating this blog post&lt;/li&gt;
+  &lt;li&gt;2021-01-30: publication of this blog post&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&quot;acknowledgments&quot;&gt;Acknowledgments&lt;/h1&gt;
+
+&lt;p&gt;I would like to thank &lt;a href=&quot;https://twitter.com/angealbertini&quot;&gt;Ange Albertini&lt;/a&gt; for
+providing the very nice Zip and GZip file format description images.&lt;/p&gt;
+
+&lt;p&gt;Also thanks to toffan, patate &amp;amp; acid for reviewing this blog post!&lt;/p&gt;
+
+&lt;div class=&quot;footnotes&quot; role=&quot;doc-endnotes&quot;&gt;
+  &lt;ol&gt;
+    &lt;li id=&quot;fn:1&quot; role=&quot;doc-endnote&quot;&gt;
+      &lt;p&gt;&lt;a href=&quot;https://en.wikipedia.org/wiki/Kerckhoffs%27s_principle&quot;&gt;Kerckhoff&lt;/a&gt; might not agree on calling this encryption. &lt;a href=&quot;#fnref:1&quot; class=&quot;reversefootnote&quot; role=&quot;doc-backlink&quot;&gt;&amp;#8617;&lt;/a&gt;&lt;/p&gt;
+    &lt;/li&gt;
+    &lt;li id=&quot;fn:2&quot; role=&quot;doc-endnote&quot;&gt;
+      &lt;p&gt;Kerckhoff is happier with this one &lt;a href=&quot;#fnref:2&quot; class=&quot;reversefootnote&quot; role=&quot;doc-backlink&quot;&gt;&amp;#8617;&lt;/a&gt;&lt;/p&gt;
+    &lt;/li&gt;
+  &lt;/ol&gt;
+&lt;/div&gt;</content><author><name>adrien_guinet</name></author><category term="blog" /><summary type="html">This article is a write up regarding the challenge published on decryption.ch by the Ex0-Sys company. Even if I resolved it in 2019, it took me a bit of time and motivation to write and finalize that blog post. Better late than never, as they say.</summary></entry><entry><title type="html">Donjon CTF SSSGX write-up: linear functions strike back</title><link href="https://aguinet.github.io/blog/2020/11/22/donjon-ctf-sssgx.html" rel="alternate" type="text/html" title="Donjon CTF SSSGX write-up: linear functions strike back" /><published>2020-11-22T00:00:00+01:00</published><updated>2020-11-22T00:00:00+01:00</updated><id>https://aguinet.github.io/blog/2020/11/22/donjon-ctf-sssgx</id><content type="html" xml:base="https://aguinet.github.io/blog/2020/11/22/donjon-ctf-sssgx.html">&lt;p&gt;This writeup presents a solution to the SSSGX Wallet stage of the &lt;a href=&quot;https://donjon-ctf.io/&quot;&gt;2020 Ledger
 Donjon’s CTF&lt;/a&gt;. It showcases a solution using a kind of generic
 method to exploit the issues that we are facing in this challenge, which
 can basically be reduced to solving a linear system in the vector space
@@ -712,7 +1334,7 @@ a_0 \\
 a_1 \\
 a_2 \\
 a_3 \\
-\end{pmatrix}\]</content><author><name>adrien_guinet</name></author><category term="blog" /><summary type="html">This writeup presents a solution to the SSSGX Wallet stage of the 2020 Ledger Donjon’s CTF. It showcases a solution using a kind of generic method to exploit the issues that we are facing in this challenge, which can basically be reduced to solving a linear system in the vector space \(\{0,1\}^N\).</summary></entry><entry><title type="html">Lifting shared libraries &amp;amp; PIE binaries with DragonFFI (and LIEF)</title><link href="https://aguinet.github.io//blog/2020/10/05/dragonffi-library-lifting.html" rel="alternate" type="text/html" title="Lifting shared libraries &amp;amp; PIE binaries with DragonFFI (and LIEF)" /><published>2020-10-05T00:00:00+02:00</published><updated>2020-10-05T00:00:00+02:00</updated><id>https://aguinet.github.io//blog/2020/10/05/dragonffi-library-lifting</id><content type="html" xml:base="https://aguinet.github.io//blog/2020/10/05/dragonffi-library-lifting.html">&lt;p&gt;&lt;a href=&quot;https://github.com/aguinet/dragonffi/releases/tag/dffi-0.6.0&quot;&gt;Dragonffi 0.6.0&lt;/a&gt;
+\end{pmatrix}\]</content><author><name>adrien_guinet</name></author><category term="blog" /><summary type="html">This writeup presents a solution to the SSSGX Wallet stage of the 2020 Ledger Donjon’s CTF. It showcases a solution using a kind of generic method to exploit the issues that we are facing in this challenge, which can basically be reduced to solving a linear system in the vector space \(\{0,1\}^N\).</summary></entry><entry><title type="html">Lifting shared libraries &amp;amp; PIE binaries with DragonFFI (and LIEF)</title><link href="https://aguinet.github.io/blog/2020/10/05/dragonffi-library-lifting.html" rel="alternate" type="text/html" title="Lifting shared libraries &amp;amp; PIE binaries with DragonFFI (and LIEF)" /><published>2020-10-05T00:00:00+02:00</published><updated>2020-10-05T00:00:00+02:00</updated><id>https://aguinet.github.io/blog/2020/10/05/dragonffi-library-lifting</id><content type="html" xml:base="https://aguinet.github.io/blog/2020/10/05/dragonffi-library-lifting.html">&lt;p&gt;&lt;a href=&quot;https://github.com/aguinet/dragonffi/releases/tag/dffi-0.6.0&quot;&gt;Dragonffi 0.6.0&lt;/a&gt;
 comes with new APIs that can be leveraged to call arbitrary functions within a
 shared library (or position independent (aka PIE) binaries).&lt;/p&gt;
 
@@ -917,7 +1539,7 @@ and portable across OSX, Linux and Windows.&lt;/p&gt;
 &lt;p&gt;Thanks to &lt;a href=&quot;https://github.com/serge-sans-paille/&quot;&gt;serge-sans-paille&lt;/a&gt; that took
 the time to review this post while cleaning &lt;a href=&quot;https://www.mangeons-local.bzh/wp-content/uploads/sac-kig-farz.jpg&quot;&gt;his lovely Kig Ah Farz
 bags&lt;/a&gt;, and
-toffan for various corrections.&lt;/p&gt;</content><author><name>adrien_guinet</name></author><category term="blog" /><summary type="html">Dragonffi 0.6.0 comes with new APIs that can be leveraged to call arbitrary functions within a shared library (or position independent (aka PIE) binaries).</summary></entry><entry><title type="html">Emulating NotPetya bootloader with Miasm</title><link href="https://aguinet.github.io//blog/2020/08/29/miasm-bootloader.html" rel="alternate" type="text/html" title="Emulating NotPetya bootloader with Miasm" /><published>2020-08-29T00:00:00+02:00</published><updated>2020-08-29T00:00:00+02:00</updated><id>https://aguinet.github.io//blog/2020/08/29/miasm-bootloader</id><content type="html" xml:base="https://aguinet.github.io//blog/2020/08/29/miasm-bootloader.html">&lt;p&gt;NotPetya is a famous malware of the Petya family. It appeared in June 2017.
+toffan for various corrections.&lt;/p&gt;</content><author><name>adrien_guinet</name></author><category term="blog" /><summary type="html">Dragonffi 0.6.0 comes with new APIs that can be leveraged to call arbitrary functions within a shared library (or position independent (aka PIE) binaries).</summary></entry><entry><title type="html">Emulating NotPetya bootloader with Miasm</title><link href="https://aguinet.github.io/blog/2020/08/29/miasm-bootloader.html" rel="alternate" type="text/html" title="Emulating NotPetya bootloader with Miasm" /><published>2020-08-29T00:00:00+02:00</published><updated>2020-08-29T00:00:00+02:00</updated><id>https://aguinet.github.io/blog/2020/08/29/miasm-bootloader</id><content type="html" xml:base="https://aguinet.github.io/blog/2020/08/29/miasm-bootloader.html">&lt;p&gt;NotPetya is a famous malware of the Petya family. It appeared in June 2017.
 The part running from the Master Boot Record (MBR) has been statically and
 dynamically studied, using for instance the Bochs debugger from IDA. Is
 another approach possible? This article’s goal is to show that we can emulate
